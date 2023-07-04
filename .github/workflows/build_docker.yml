@@ -2,7 +2,7 @@ name: build-docker
 run-name: ${{ github.actor }} is building docker image
 on: [push]
 jobs:
-  push_to_github_packages
+  push_to_github_packages:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
