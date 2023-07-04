@@ -1,0 +1,20 @@
+name: build-docker
+run-name: ${{ github.actor }} is building docker image
+on: [push]
+jobs:
+  push_to_github_packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Push to GitHub Packages
+        uses: docker/build-push-action@v4
+        with:
+          push: true
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: docker.pkg.github.com
+#           path: complex/backend
+          repository: ${{ github.repository }}
+          tag_with_ref: true

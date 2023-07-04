@@ -1,0 +1,26 @@
+# Utils
+PyYAML
+python-dateutil
+deprecation
+
+# Google Cloud
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+google-cloud-firestore
+google-cloud-logging
+google-cloud-storage
+google-cloud-monitoring
+google-cloud-pubsub
+
+# HTTP
+marshmallow
+xmltodict
+html2text
+tornado
+aiogram<2.23
+aiohttp
+
+# Data
+pandas
+numpy
