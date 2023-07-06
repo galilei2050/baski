@@ -86,7 +86,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
     def args(self):
         parser = argparse.ArgumentParser(prog=self.name)
         parser.add_argument('-d', '--debug', help='Run in debug mode', default=bool(is_debug()), action='store_true')
-        parser.add_argument('-c', '--config', help="Path to config file", default='app/config.yml')
+        parser.add_argument('-c', '--config', help="Path to config file", default='config.yml')
         parser.add_argument('-p', '--port', help="Port to listen", default=int(port()))
         parser.add_argument('--cloud', help="Run in cloud mode", default=bool(is_cloud()), action='store_true')
         parser.add_argument('--dry-run', help='Run in dry-run mode', default=bool(is_test()), action='store_true')
