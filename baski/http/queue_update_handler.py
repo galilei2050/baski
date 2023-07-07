@@ -195,6 +195,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
         for item_id, item in items_to_update:
             kwargs['item_id'] = item_id
+            kwargs = {k: str(v) for k, v in kwargs.items() if v is not None}
             data = json.dumps(item).encode('utf-8')
             f = await as_async(partial(self.publisher.publish, topic_path, data, **kwargs))
             await asyncio.sleep(interval)
