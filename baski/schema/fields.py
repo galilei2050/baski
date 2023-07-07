@@ -10,6 +10,13 @@ class BigQueryDateTime(fields.DateTime):
         return to_utc(value).replace(tzinfo=None).isoformat()
 
 
+class NotNullFloat(fields.Float):
+    def _serialize(self, value, attr, obj, **kwargs) -> str | None:
+        if value is None:
+            return 0.0
+        return super()._serialize(value, attr, obj, **kwargs)
+
+
 class NotNullString(fields.String):
     def _serialize(self, value, attr, obj, **kwargs) -> str | None:
         if value is None:
