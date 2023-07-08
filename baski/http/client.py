@@ -32,6 +32,11 @@ CONTENT_TYPE_HTML = 'text/html'
 HttpResult = typing.Optional[typing.Union[typing.Dict, typing.AnyStr]]
 
 
+def get_cipher_list():
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    return [cipher['name'] for cipher in context.get_ciphers()]
+
+
 class HttpClient(object):
     '''
     Additional functional to the aiohttp.Session
@@ -54,7 +59,7 @@ class HttpClient(object):
     ):
         self._session: aiohttp.ClientSession = None
         self._ssl_ctx = ssl.create_default_context()
-        self._ssl_ctx.set_ciphers('DEFAULT')
+        self._ssl_ctx.set_ciphers(":".join(get_cipher_list()))
         self._context_cnt = 0
         self._base_url = base_url
         self._proxy = proxy
@@ -144,12 +149,14 @@ class HttpClient(object):
             raise HttpConnectionError(code=HTTPStatus.BAD_REQUEST, message=str(e))
 
         except aiohttp.ServerDisconnectedError as e:
-            return await retry(HttpConnectionError(code=HTTPStatus.REQUEST_TIMEOUT, message=f"{self._base_url} {e.message}"))
+            return await retry(
+                HttpConnectionError(code=HTTPStatus.REQUEST_TIMEOUT, message=f"{self._base_url} {e.message}"))
 
         # More generic exceptions
         except asyncio.TimeoutError:
             p = '' if not self._proxy else " with proxy"
-            return await retry(HttpTimeoutError(code=HTTPStatus.REQUEST_TIMEOUT, message=f"{self._base_url} timeout{p}"))
+            return await retry(
+                HttpTimeoutError(code=HTTPStatus.REQUEST_TIMEOUT, message=f"{self._base_url} timeout{p}"))
 
         except (aiohttp.ClientOSError, aiohttp.ClientPayloadError) as e:
             return await retry(HttpConnectionError(code=HTTPStatus.BAD_REQUEST, message=str(e)))
