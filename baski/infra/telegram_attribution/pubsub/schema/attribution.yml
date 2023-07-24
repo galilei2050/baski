@@ -1,0 +1,17 @@
+type: record
+name: attribution_schema
+fields:
+  - name: source
+    type: string
+  - name: medium
+    type: string
+  - name: campaign
+    type: string
+  - name: content
+    type: string
+  - name: term
+    type: string
+  - name: timestamp
+    type: string
+  - name: user_id
+    type: long

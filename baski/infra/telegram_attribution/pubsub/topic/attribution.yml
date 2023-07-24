@@ -1,0 +1,23 @@
+topic:
+    name: attribution
+    schema_settings:
+        schema: attribution_schema
+        encoding: JSON
+
+subscriptions:
+    - name: attribution_to_big_query
+      ack_deadline_seconds: 600
+      message_retention_duration: 3600s
+      topic_message_retention_duration: 3600s
+      retry_policy:
+          minimum_backoff: 10s
+          maximum_backoff: 600s
+      bigquery_config:
+          table: PROJECT_ID.data.attribution
+          use_topic_schema: true
+          drop_unknown_fields: true
+
+    - name: attribution_debug
+      ack_deadline_seconds: 60
+      message_retention_duration: 600s
+      topic_message_retention_duration: 600s

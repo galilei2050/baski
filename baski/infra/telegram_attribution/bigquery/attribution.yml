@@ -1,0 +1,22 @@
+table_id: attribution
+schema:
+    - name: source
+      field_type: STRING
+      mode: NULLABLE
+    - name: medium
+      field_type: STRING
+      mode: NULLABLE
+    - name: campaign
+      field_type: STRING
+      mode: NULLABLE
+    - name: content
+      field_type: STRING
+      mode: NULLABLE
+    - name: term
+      field_type: STRING
+      mode: NULLABLE
+    - name: timestamp
+      field_type: DATETIME
+      mode: NULLABLE
+    - name: user_id
+      field_type: INT64
