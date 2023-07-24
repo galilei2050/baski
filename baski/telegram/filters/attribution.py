@@ -1,5 +1,6 @@
 import typing
 import base64
+from urllib.parse import parse_qsl
 from aiogram import filters, types
 from google.cloud import firestore
 from google.cloud import pubsub
@@ -55,7 +56,8 @@ class Attribution(filters.Filter):
     def sink_to_pubsub(self, event: typing.Dict):
         if not self.topic or not self.publisher:
             return
-        self.publisher.publish(self.topic, attribution_event_schema.load(event))
+        event_data = attribution_event_schema.dumps(event).encode('utf-8')
+        self.publisher.publish(self.topic, event_data)
 
 
 class AttributionEventSchema(Schema):
@@ -64,8 +66,8 @@ class AttributionEventSchema(Schema):
     campaign = NotNullString()
     content = NotNullString()
     term = NotNullString()
-    timestamp = BigQueryDateTime()
-    user_id = Integer()
+    timestamp = BigQueryDateTime(required=True)
+    user_id = Integer(required=True)
 
 
 class AttributionDataSchema(Schema):
@@ -84,7 +86,8 @@ def _get_attribution_object(message: types.Message):
     if not len(parts) == 2:
         return None
     try:
-        data = attribution_data_schema.load(base64.standard_b64decode(parts[1]))
+        cgi_string = base64.standard_b64decode(parts[1]).decode('utf-8')
+        data = attribution_data_schema.load(dict(parse_qsl(cgi_string)))
         data['timestamp'] = message.date
         data['user_id'] = message.from_user.id
         return data

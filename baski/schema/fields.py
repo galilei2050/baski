@@ -18,6 +18,9 @@ class NotNullFloat(fields.Float):
 
 
 class NotNullString(fields.String):
+    def __init__(self, *, dump_default="", load_default="", **kwargs):
+        super().__init__(dump_default=dump_default, load_default=load_default, **kwargs)
+
     def _serialize(self, value, attr, obj, **kwargs) -> str | None:
         if value is None:
             return ""
