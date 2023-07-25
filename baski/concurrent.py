@@ -7,7 +7,7 @@ from tornado.web import HTTPError
 
 from .config import AppConfig
 
-__all__ = ['as_async', 'map_async']
+__all__ = ['as_async', 'map_async', 'as_task']
 
 
 @functools.lru_cache()
@@ -33,3 +33,7 @@ async def map_async(array: typing.List[typing.Any], async_fn: typing.Callable, *
 async def as_async(f: typing.Callable, *args, **kwargs):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, functools.partial(f, *args, **kwargs))
+
+
+def as_task(coro):
+    return asyncio.get_event_loop().create_task(coro)

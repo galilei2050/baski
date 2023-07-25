@@ -1,10 +1,11 @@
 import typing
+import asyncio
 
-from dataclasses import dataclass, field, asdict
-
+from dataclasses import dataclass, field, asdict, fields, is_dataclass
+from datetime import datetime
 from aiogram import types
 from google.cloud import firestore
-
+from ...concurrent import as_task
 
 __all__ = ['TelegramUser', 'UsersStorage']
 
@@ -15,6 +16,8 @@ class TelegramUser:
     username: str = field(default=None)
     first_name: str = field(default=None)
     last_name: str = field(default=None)
+    last_in_message: datetime = field(default=None)
+    last_out_message: datetime = field(default=None)
 
     def sync_with(self, tg_user: types.User = None):
         if not tg_user:
@@ -32,12 +35,20 @@ class UsersStorage(object):
 
     def __init__(
             self,
-            db: firestore.AsyncClient,
-            collection='telegram_users',
-            factory=TelegramUser,
+            collection=firestore.CollectionReference,
+            klass=TelegramUser,
     ):
-        self._db = db.collection(collection)
-        self._factory = factory
+        assert is_dataclass(klass), "klass must be a dataclass"
+        assert issubclass(klass, TelegramUser), "klass must be a TelegramUser"
+
+        self._db = collection
+        self._klass = klass
+        self._tasks = []
+        self._fields = {f.name for f in fields(klass)}
+
+    async def commit(self):
+        await asyncio.gather(*self._tasks)
+        self._tasks = []
 
     async def delete(self, user_id):
         user_ref = self._db.document(str(user_id))
@@ -47,9 +58,11 @@ class UsersStorage(object):
         user_ref = self._db.document(str(user_id))
         user_doc = await user_ref.get()
         if not user_doc.exists:
-            return self._factory(id=user_id)
-        return self._factory(**user_doc.to_dict())
+            return self._klass(id=user_id)
+        data = {k: v for k, v in user_doc.to_dict().items() if k in self._fields}
+        return self._klass(**data)
 
-    async def set(self, user: TelegramUser):
+    def set(self, user: TelegramUser):
         user_ref = self._db.document(str(user.id))
-        await user_ref.set(asdict(user), merge=True)
+        self._tasks.append(as_task(user_ref.set(asdict(user), merge=True)))
+        self._tasks = [t for t in self._tasks[:] if not t.done()]

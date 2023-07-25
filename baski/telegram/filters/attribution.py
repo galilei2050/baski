@@ -32,6 +32,7 @@ class Attribution(filters.Filter):
 
         await self.sink_to_firestore(attribution_event)
         self.sink_to_pubsub(attribution_event)
+        return True
 
     @classmethod
     def validate(cls, full_config: typing.Dict[str, typing.Any]) -> typing.Optional[typing.Dict[str, typing.Any]]:
@@ -40,11 +41,11 @@ class Attribution(filters.Filter):
         return {}
 
     @classmethod
-    def firestore_sink(cls, collection: firestore.AsyncCollectionReference):
+    def setup_firestore(cls, collection: firestore.AsyncCollectionReference):
         cls.collection = collection
 
     @classmethod
-    def pubsub_sink(cls, topic: str, publisher: pubsub.PublisherClient):
+    def setup_pubsub(cls, topic: str, publisher: pubsub.PublisherClient):
         cls.topic = topic
         cls.publisher = publisher
 
