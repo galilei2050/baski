@@ -6,6 +6,7 @@ from datetime import datetime
 from aiogram import types
 from google.cloud import firestore
 from ...concurrent import as_task
+from ...primitives.dataclass import from_doc
 
 __all__ = ['TelegramUser', 'UsersStorage']
 
@@ -41,10 +42,16 @@ class UsersStorage(object):
         assert is_dataclass(klass), "klass must be a dataclass"
         assert issubclass(klass, TelegramUser), "klass must be a TelegramUser"
 
-        self._db = collection
-        self._klass = klass
+        self._db: firestore.CollectionReference = collection
+        self._klass: TelegramUser = klass
         self._tasks = []
         self._fields = {f.name for f in fields(klass)}
+
+    async def all(self):
+        users = []
+        async for user in self._db.stream():
+            users.append(from_doc(self._klass, user))
+        return users
 
     async def commit(self):
         await asyncio.gather(*self._tasks)

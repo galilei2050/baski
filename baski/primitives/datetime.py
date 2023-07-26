@@ -11,6 +11,10 @@ __all__ = ['as_local', 'to_utc', 'as_utc', 'to_tz',
 ES_Eastern = pytz.timezone('US/Eastern')
 
 
+def now():
+    return as_local(datetime.now())
+
+
 def is_today(time_point: datetime):
     now = as_local(datetime.now())
     return abs((now - time_point)) < timedelta(days=1)
