@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import logging as local_logging
 import logging.config
+import os
 import signal
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -76,7 +77,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
 
     @cached_property
     def loop_executor(self):
-        return ThreadPoolExecutor(max_workers=self.config.concurrency)
+        return ThreadPoolExecutor(max_workers=self.config.concurrency or os.cpu_count())
 
     @cached_property
     def db(self):

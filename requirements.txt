@@ -25,3 +25,6 @@ aiohttp
 # Data
 pandas
 numpy
+
+# 3rd party clients
+openai

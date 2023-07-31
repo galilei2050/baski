@@ -1,7 +1,8 @@
 import logging
-from collections import UserDict
-
 import yaml
+
+from collections import UserDict
+from pathlib import Path
 from google.api_core.exceptions import PermissionDenied
 from google.cloud import firestore
 
@@ -12,15 +13,18 @@ class Config(UserDict):
 
     def __init__(self, data=None, path=None):
         super().__init__()
+        self._path = path or ''
         if not data:
             return
         assert isinstance(data, dict)
-        self._path = path or ''
         for k, v in data.items():
             if isinstance(v, dict):
                 self[k] = Config(v, '.'.join([self._path, k]) if self._path else k)
             else:
                 self[k] = v
+
+    def __missing__(self, key):
+        return Config(path='.'.join([self._path, key]) if self._path else key)
 
     def __getitem__(self, key):
         if not isinstance(key, str):
@@ -58,8 +62,11 @@ class AppConfig(metaclass=Singleton):
     def __init__(self, *args, **kwargs):
         self._cfg = Config(*args, **kwargs)
 
-    def load_yml(self, stream):
-        with open(stream) as config:
+    def load_yml(self, file_path):
+        file_path = Path(file_path)
+        if not file_path.exists():
+            return self
+        with file_path.open() as config:
             data = yaml.load(config, Loader=yaml.Loader)
             self._cfg = Config(data)
         return self

@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import logging
 import typing
-
+from functools import wraps
 from .primitives.name import fn_name
 
 __all__ = ['do_nothing', 'do_nothing_sync', 'on_exception']
@@ -28,6 +28,7 @@ def on_exception(
         assert inspect.iscoroutinefunction(fn), "Only async functions supported"
         is_do_async = inspect.iscoroutinefunction(do)
 
+        @wraps(fn)
         async def inner(*args, **kwargs):
             ret_val = None
             try:
