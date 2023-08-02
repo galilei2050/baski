@@ -104,15 +104,13 @@ class QueueUpdateHandler(RequestHandler, ABC):
     def collection(self) -> firestore.AsyncCollectionReference:
         return self.db.collection(self.collection_name)
 
-    @cached_property
-    def update_from(self):
-        obsolescence = self.get_query_argument('obsolescence', self.default_obsolescence_hours)
+    def update_from(self, obsolescence):
         return self.now() - timedelta(hours=int(obsolescence))
 
-    def is_actual(self, item: typing.Dict):
+    def is_actual(self, item: typing.Dict, obsolescence):
         item = item or {}
         updated_dict = item.get('updated') or {}
-        return (updated_dict.get(self.topic_id) or START_OF_EPOCH) > self.update_from
+        return (updated_dict.get(self.topic_id) or START_OF_EPOCH) > self.update_from(obsolescence)
 
     def prepare(self):
         is_configured = all([self.collection_name, self.topic_id, self.what])
@@ -172,6 +170,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
         message = self.json_body.get('message')
         attributes = (message.get('attributes') or {})
         data = base64.b64decode(message.get('data'))
+        logging.info(f'Updating {self.what} attrs={attributes}')
         logging.debug(f'Updating {self.what} attrs={attributes} data={data}')
         item = json.loads(data) if data else None
         collected_metrics = defaultdict(int)
@@ -183,9 +182,8 @@ class QueueUpdateHandler(RequestHandler, ABC):
         return AppConfig().project_id
 
     def _arguments(self):
-        if not isinstance(self.arguments, dict):
-            return {}
-        args = deepcopy(self.arguments)
+        args = deepcopy(self.arguments) if isinstance(self.arguments, dict) else {}
+        args = args | {'obsolescence': self.default_obsolescence_hours}
         for k, d in args.items():
             args[k] = self.get_query_argument(k, d)
         return args
@@ -208,11 +206,12 @@ class QueueUpdateHandler(RequestHandler, ABC):
         return collected_metrics
 
     async def _do_update_one(self, collected_metrics, item_id, item, **kwargs):
-        logging.info('Updating %s %s', self.what, item_id)
         try:
-            if self.is_actual(item):
+            if self.is_actual(item, kwargs.get('obsolescence')):
+                logging.info('Actual %s %s', self.what, item_id)
                 collected_metrics['actual'] += 1
                 return
+            logging.info('Updating %s %s', self.what, item_id)
 
             metrics = await self.update_one(item_id, item, **kwargs)
             if isinstance(metrics, dict):
