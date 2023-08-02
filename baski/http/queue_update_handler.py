@@ -207,7 +207,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
     async def _do_update_one(self, collected_metrics, item_id, item, **kwargs):
         try:
-            if self.is_actual(item, kwargs.get('obsolescence')):
+            if self.is_actual(item, kwargs.get('obsolescence', self.default_obsolescence_hours)):
                 logging.info('Actual %s %s', self.what, item_id)
                 collected_metrics['actual'] += 1
                 return
