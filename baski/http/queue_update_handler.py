@@ -102,6 +102,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
     @cached_property
     def collection(self) -> firestore.AsyncCollectionReference:
+        assert self.collection_name, "Define collection_name in the class to call this method"
         return self.db.collection(self.collection_name)
 
     def update_from(self, obsolescence):
@@ -113,8 +114,8 @@ class QueueUpdateHandler(RequestHandler, ABC):
         return (updated_dict.get(self.topic_id) or START_OF_EPOCH) > self.update_from(obsolescence)
 
     def prepare(self):
-        is_configured = all([self.collection_name, self.topic_id, self.what])
-        assert is_configured, "Define cls.topic_id and collection_name"
+        is_configured = all([self.topic_id, self.what])
+        assert is_configured, "Define cls.topic_id and what"
         super().prepare()
 
     async def get(self):
@@ -170,8 +171,8 @@ class QueueUpdateHandler(RequestHandler, ABC):
         message = self.json_body.get('message')
         attributes = (message.get('attributes') or {})
         data = base64.b64decode(message.get('data'))
-        logging.info(f'Updating {self.what} attrs={attributes}')
-        logging.debug(f'Updating {self.what} attrs={attributes} data={data}')
+        logging.info(f'{self.what} attrs={attributes}')
+        logging.debug(f'{self.what} attrs={attributes} data={data}')
         item = json.loads(data) if data else None
         collected_metrics = defaultdict(int)
         await self._do_update_one(collected_metrics=collected_metrics, item=item, **attributes)
@@ -208,10 +209,10 @@ class QueueUpdateHandler(RequestHandler, ABC):
     async def _do_update_one(self, collected_metrics, item_id, item, **kwargs):
         try:
             if self.is_actual(item, kwargs.get('obsolescence', self.default_obsolescence_hours)):
-                logging.info('Actual %s %s', self.what, item_id)
+                logging.info('%s %s is actual', self.what, item_id)
                 collected_metrics['actual'] += 1
                 return
-            logging.info('Updating %s %s', self.what, item_id)
+            logging.info('%s %s processing', self.what, item_id)
 
             metrics = await self.update_one(item_id, item, **kwargs)
             if isinstance(metrics, dict):
