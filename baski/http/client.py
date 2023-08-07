@@ -96,6 +96,7 @@ class HttpClient(object):
             method=aiohttp.hdrs.METH_GET,
             data: typing.Any = None,
             max_attempts=2,
+            fail_fast=False,
             **cgi
     ) -> HttpResult:
         if self._is_session_open():
@@ -107,7 +108,7 @@ class HttpClient(object):
 
         session = self._make_session()
         async with session as session:
-            return await self.request(session, url, method, data, max_attempts, **cgi)
+            return await self.request(session, url, method, data, max_attempts, fail_fast=fail_fast, **cgi)
 
     async def request(
             self,
@@ -116,8 +117,10 @@ class HttpClient(object):
             method=aiohttp.hdrs.METH_GET,
             data: typing.Any = None,
             max_attempts=2,
+            fail_fast=False,
             **cgi):
-
+        if fail_fast and self._next_req > datetime.now():
+            raise HttpTimeoutError(code=HTTPStatus.TOO_MANY_REQUESTS, message=f'Rate limit {self._base_url} exceeded')
         await self._wait()
         assert method in aiohttp.hdrs.METH_ALL
 

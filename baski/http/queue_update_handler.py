@@ -170,11 +170,14 @@ class QueueUpdateHandler(RequestHandler, ABC):
         """
         message = self.json_body.get('message')
         attributes = (message.get('attributes') or {})
-        data = base64.b64decode(message.get('data'))
-        logging.info(f'{self.what} attrs={attributes}')
-        logging.debug(f'{self.what} attrs={attributes} data={data}')
-        item = json.loads(data) if data else None
         collected_metrics = defaultdict(int)
+        logging.info(f'{self.what} attrs={attributes}')
+        data = message.get('data')
+        item = None
+        if data:
+            data = base64.b64decode(message.get('data'))
+            logging.debug(f'{self.what} attrs={attributes} data={data}')
+            item = json.loads(data) if data else None
         await self._do_update_one(collected_metrics=collected_metrics, item=item, **attributes)
         self.write(collected_metrics)
 
