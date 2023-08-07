@@ -37,7 +37,7 @@ class PubSubMessageSchema(Schema):
         unknown = EXCLUDE
 
     attributes = fields.Dict()
-    data = fields.String(required=True)
+    data = fields.String(allow_none=True, default=None)
     messageId = fields.String(required=True)
     message_id = fields.String(required=True)
     publishTime = fields.DateTime(required=True)
