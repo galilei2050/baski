@@ -15,8 +15,11 @@ class HelloBot(TelegramServer):
 
     def register_handlers(self):
         from . import simple_echo_handler, start_command
+        from baski.telegram import handlers
         start_command.register(self.receptionist, self.context)
         simple_echo_handler.register(self.receptionist, self.context)
+
+        self.receptionist.add_error_handler(handlers.SaySorryHandler())
 
     def web_routes(self) -> typing.List:
         return []

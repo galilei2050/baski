@@ -23,7 +23,16 @@ class User(filters.Filter):
     async def check(self, obj: types.Message, *args, **kwargs):
         if not self.inject_user or not self.users:
             return True
-        tg_user = obj.from_user
+        tg_user = None
+        if isinstance(obj, types.Message):
+            tg_user = obj.from_user
+        elif isinstance(obj, types.CallbackQuery):
+            tg_user = obj.from_user
+        elif isinstance(obj, types.Update):
+            tg_user = obj.message.from_user
+        if tg_user is None:
+            return {"user": None, "users": self.users}
+
         user = await self.users.get(tg_user.id) if tg_user else None
         if user is None:
             return {"user": user, "users": self.users}

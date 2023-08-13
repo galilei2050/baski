@@ -81,7 +81,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
 
     @cached_property
     def db(self):
-        return firestore.Client()
+        return firestore.AsyncClient()
 
     @cached_property
     def args(self):
@@ -98,7 +98,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
     def config(self):
         cfg = AppConfig()
         cfg.load_yml(self.args['config'])
-        cfg.load_db(self.db)
+        cfg.load_db(firestore.Client())
         for a in ['debug', 'cloud']:
             cfg[a] = self.args[a]
         logging.info('Config file %s loaded', self.args['config'])

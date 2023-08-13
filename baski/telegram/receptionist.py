@@ -16,7 +16,7 @@ class Receptionist(object):
         self._setup_handlers()
 
     def _setup_handlers(self):
-        self._dp.register_message_handler(self._clear_state, Text(startswith="/") & AnyStateFilter(self._dp))
+        self._dp.register_message_handler(self._clear_state, Text(startswith="/") & AnyStateFilter(self._dp), state='*')
 
     async def _clear_state(self, *args, state: FSMContext = None, **kwargs):
         '''
@@ -33,6 +33,9 @@ class Receptionist(object):
     def _check_callback(self, callback):
         spec = inspect.getfullargspec(callback)
         assert spec.varkw is not None, "Callback must have **kwargs argument"
+
+    def add_error_handler(self, callback,  *custom_filters, **kwargs):
+        self._dp.register_errors_handler(callback, *custom_filters, **kwargs)
 
     def add_message_handler(self, callback, *custom_filters, **kwargs):
         '''

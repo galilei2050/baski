@@ -12,11 +12,12 @@ __all__ = ["OpenAiClient"]
 
 class OpenAiClient(object):
 
-    def __init__(self, api_key, system_prompt, user_prompts=None, default_cgi=None):
+    def __init__(self, api_key, system_prompt, user_prompts=None, default_cgi=None, chunk_length=128):
         openai.api_key = api_key
         self.system_prompt = system_prompt
         self.user_prompts = user_prompts or {}
         self.default_cgi = default_cgi or _CGI
+        self.chunk_length = chunk_length
 
     def from_prompt(self, user_id, prompt, history=None, prepend=False, **params):
         history = [_check_message(msg) for msg in history or []]
@@ -51,6 +52,7 @@ class OpenAiClient(object):
                     **this_cgi
                 )
                 chunks = []
+                yielded_text = ""
                 async for chunk in response:
                     if chunk['choices'][0]['finish_reason'] == "stop":
                         break
@@ -58,9 +60,14 @@ class OpenAiClient(object):
                     logging.debug(f"new chunk: {delta.get('content', '')}")
                     content = delta.get('content', '')
                     chunks.append(content)
-                    if '\n' in content:
-                        yield ''.join(chunks)
-                yield ''.join(chunks)
+                    size_so_far = sum(len(c) for c in chunks)
+                    if '\n' in content or size_so_far - len(yielded_text) > self.chunk_length:
+                        yielded_text = ''.join(chunks)
+                        yield yielded_text
+                final_text = ''.join(chunks)
+                if final_text != yielded_text:
+                    yield final_text
+                return
             except openai.error.InvalidRequestError as e:
                 raise RuntimeError(f"Invalid request \"{request_id}\" for user {user_id}: {e}")
             except (openai.error.APIError,

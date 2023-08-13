@@ -57,7 +57,7 @@ class TelegramServer(AsyncServer):
 
     @cached_property
     def dp(self):
-        dp = aiogram.Dispatcher(self.bot, storage=self.fsm_storage())
+        dp = aiogram.Dispatcher(self.bot, storage=self.fsm_storage)
         for m in self.middlewares():
             dp.setup_middleware(m)
         for f in self.filters():
@@ -74,8 +74,8 @@ class TelegramServer(AsyncServer):
 
     def add_arguments(self, parser: argparse.ArgumentParser):
         super().add_arguments(parser)
-        parser.add_argument('--webhook-path', help="Webhook path", default=get_env("WEBHOOK_URL", ""))
-        parser.add_argument('--token', help="Telegram bot token", default=get_env("TELEGRAM_TOKEN", ""))
+        parser.add_argument('--webhook-path', help="Webhook path", default=str(get_env("WEBHOOK_URL", "")))
+        parser.add_argument('--token', help="Telegram bot token", default=str(get_env("TELEGRAM_TOKEN", "")))
 
     def init(self, *args, **kwargs):
         super().init(*args, **kwargs)
