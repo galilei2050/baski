@@ -8,7 +8,7 @@ __all__ = ['MessageTelemetry']
 class MessageTelemetry(Telemetry):
 
     def add_message(self, event_type, message: types.Message, user: types.User):
-        user_id = message.from_user.id
+        user_id = user.id
         timestamp = message.date
         self.add(user_id, event_type, self.message_payload(message, user), timestamp=timestamp)
 
@@ -18,6 +18,7 @@ class MessageTelemetry(Telemetry):
             "username": user.username,
             "language_code": user.language_code,
             "is_premium": user.is_premium,
+            "user_id": user.id,
 
         }
         if message.chat:
@@ -27,7 +28,7 @@ class MessageTelemetry(Telemetry):
 
         if message.text:
             data = data | {
-                "text_length": len(message.text),
-                "text_words": message.text.count(" "),
+                "text_letters_cnt": len(message.text),
+                "text_words_cnt": message.text.count(" ") + 1,
             }
         return data
