@@ -14,7 +14,7 @@ from google.cloud import firestore
 from google.cloud import logging as cloud_logging
 
 from ..config import AppConfig
-from ..env import is_debug, is_test, is_cloud, port
+from ..env import is_debug, is_test, is_cloud, port, get_env
 
 __all__ = ['AsyncServer']
 
@@ -91,6 +91,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
         parser.add_argument('-p', '--port', help="Port to listen", default=int(port()))
         parser.add_argument('--cloud', help="Run in cloud mode", default=bool(is_cloud()), action='store_true')
         parser.add_argument('--dry-run', help='Run in dry-run mode', default=bool(is_test()), action='store_true')
+        parser.add_argument('--project-id', help='Google Cloud project ID', default=str(get_env('GOOGLE_CLOUD_PROJECT', '')))
         self.add_arguments(parser)
         return dict(vars(parser.parse_args()))
 

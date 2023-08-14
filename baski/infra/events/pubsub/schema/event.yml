@@ -1,0 +1,13 @@
+type: record
+name: event_schema
+fields:
+  - name: user_id
+    type: string
+  - name: event_type
+    type: string
+  - name: timestamp
+    type: string
+  - name: uuid
+    type: string
+  - name: payload
+    type: string

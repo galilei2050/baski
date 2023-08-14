@@ -1,0 +1,23 @@
+topic:
+    name: event
+    schema_settings:
+        schema: event_schema
+        encoding: JSON
+
+subscriptions:
+    - name: event-to-bigquery
+      ack_deadline_seconds: 600
+      message_retention_duration: 3600s
+      topic_message_retention_duration: 3600s
+      retry_policy:
+          minimum_backoff: 10s
+          maximum_backoff: 600s
+      bigquery_config:
+          table: PROJECT_ID.data.event
+          use_topic_schema: true
+          drop_unknown_fields: true
+
+    - name: event-debug
+      ack_deadline_seconds: 60
+      message_retention_duration: 600s
+      topic_message_retention_duration: 600s

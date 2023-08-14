@@ -1,0 +1,14 @@
+table_id: event
+schema:
+    - name: user_id
+      field_type: STRING
+    - name: event_type
+      field_type: STRING
+    - name: timestamp
+      field_type: DATETIME
+    - name: uuid
+      field_type: STRING
+      mode: NULLABLE
+    - name: payload
+      field_type: JSON
+      mode: NULLABLE
