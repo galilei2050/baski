@@ -54,7 +54,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
 
     def __init__(self):
         logging.info('Init %s', self.name)
-        self.cloud_logs_client = None
+        self.logging_client = None
 
     def add_arguments(self, parser: argparse.ArgumentParser):
         '''
@@ -66,8 +66,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
 
     def init(self, db=None):
         configure_logging(self.config['debug'])
-        if self.args['cloud']:
-            self._setup_cloud_logging()
+        self._setup_cloud_logging()
 
     @cached_property
     def loop(self):
@@ -133,9 +132,9 @@ class AsyncServer(metaclass=abc.ABCMeta):
         return 1
 
     def _setup_cloud_logging(self):
-        self.cloud_logs_client = cloud_logging.Client()
-        self.cloud_logs_client.get_default_handler()
-        self.cloud_logs_client.setup_logging()
+        self.logging_client = cloud_logging.Client()
+        self.logging_client.get_default_handler()
+        self.logging_client.setup_logging()
 
     def execute(self):
         with self.loop_executor:
