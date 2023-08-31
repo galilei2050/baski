@@ -105,5 +105,5 @@ _CGI = {
     "n": 1,
     "temperature": 1.0,
     "timeout": 10 * 60,
-    "request_timeout": 10 * 60,
+    "request_timeout": 1 * 60,
 }

@@ -1,6 +1,7 @@
 import logging
 import typing
 import abc
+import asyncio
 from aiogram import types, dispatcher
 from aiogram.utils import exceptions
 
@@ -30,11 +31,11 @@ class LogErrorHandler(metaclass=abc.ABCMeta):
     )
 
     warning_exceptions = (
-
+        asyncio.exceptions.CancelledError,
     )
 
     def __init__(self, ignore_exceptions=(), warning_exceptions=()):
-        self.ignore_exceptions = self.ignore_exceptions +  ignore_exceptions
+        self.ignore_exceptions = self.ignore_exceptions + ignore_exceptions
         self.warning_exceptions = self.warning_exceptions + warning_exceptions
 
     async def __call__(

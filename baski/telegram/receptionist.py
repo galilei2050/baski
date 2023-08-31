@@ -37,6 +37,9 @@ class Receptionist(object):
     def add_error_handler(self, callback,  *custom_filters, **kwargs):
         self._dp.register_errors_handler(callback, *custom_filters, **kwargs)
 
+    def add_pre_checkout_handler(self, callback, *custom_filters, **kwargs):
+        self._dp.register_pre_checkout_query_handler(callback, *custom_filters, **kwargs)
+
     def add_message_handler(self, callback, *custom_filters, **kwargs):
         '''
         We add special handler to clear state, so that command execution overrides the current state.

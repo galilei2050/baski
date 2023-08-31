@@ -29,7 +29,14 @@ class User(filters.Filter):
         elif isinstance(obj, types.CallbackQuery):
             tg_user = obj.from_user
         elif isinstance(obj, types.Update):
-            tg_user = obj.message.from_user
+            if obj.callback_query:
+                tg_user = obj.callback_query.from_user
+            elif obj.message:
+                tg_user = obj.message.from_user
+            elif obj.edited_message:
+                tg_user = obj.edited_message.from_user
+            elif obj.inline_query:
+                tg_user = obj.inline_query.from_user
         if tg_user is None:
             return {"user": None, "users": self.users}
 

@@ -20,6 +20,14 @@ class TypedHandler(object):
     ):
         raise NotImplementedError("callback handler is not implemented")
 
+    async def on_pre_checkout(
+            self,
+            pre_checkout_query: types.PreCheckoutQuery,
+            state: dispatcher.FSMContext,
+            *args, **kwargs
+    ):
+        raise NotImplementedError("pre checkout handler is not implemented")
+
     async def __call__(
             self,
             message: typing.Union[types.CallbackQuery, types.Message],
@@ -30,5 +38,7 @@ class TypedHandler(object):
             return await self.on_message(message, *args, state=state, **kwargs)
         elif isinstance(message, types.CallbackQuery):
             return await self.on_callback(message, *args, state=state, **kwargs)
+        elif isinstance(message, types.PreCheckoutQuery):
+            return await self.on_pre_checkout(message, *args, state=state, **kwargs)
         else:
             raise TypeError(f"Unsupported message type: {type(message)}")
