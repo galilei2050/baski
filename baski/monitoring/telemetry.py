@@ -1,3 +1,4 @@
+import logging
 import uuid
 import json
 from google.cloud import pubsub
@@ -16,15 +17,18 @@ class Telemetry(object):
         self.topic_path = self.publisher.topic_path(project_id, topic_name)
 
     def add(self, user_id: str, event_type, payload: dict, timestamp=None):
-        data = {
-            "user_id": str(user_id),
-            "event_type": event_type,
-            "timestamp": datetime.as_local(timestamp) or datetime.now(),
-            "uuid": str(uuid.uuid4()),
-            "payload": json.dumps(_clean_dict(payload)),
-        }
-        queue_item = self._schema.dumps(data)
-        self.publisher.publish(self.topic_path, data=queue_item.encode('utf-8'))
+        try:
+            data = {
+                "user_id": str(user_id),
+                "event_type": event_type,
+                "timestamp": datetime.as_local(timestamp) if timestamp else datetime.now(),
+                "uuid": str(uuid.uuid4()),
+                "payload": json.dumps(_clean_dict(payload)),
+            }
+            queue_item = self._schema.dumps(data)
+            self.publisher.publish(self.topic_path, data=queue_item.encode('utf-8'))
+        except Exception as e:
+            logging.warning(f"Failed to add telemetry event: {e}")
 
 
 def _clean_dict(data: dict):
