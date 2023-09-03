@@ -246,7 +246,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
     async def _do_publish_all(self, items_to_update, interval=0.001, **kwargs):
         def _check_value(key, value):
-            self._cast_argument_value(key, value)
+            self._can_cast_argument_value(key, value)
             return str(value)
 
         topic_path = self.publisher.topic_path(self.project_id, self.topic_id)
