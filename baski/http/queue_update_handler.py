@@ -148,7 +148,8 @@ class QueueUpdateHandler(RequestHandler, ABC):
         if item_id:
             collected_metrics = defaultdict(int)
             item = await self.item(item_id)
-            await self._do_update_one(collected_metrics, item_id, item, **args)
+            args['item_id'] = item_id
+            await self._do_update_one(collected_metrics, item=item, **args)
             self.write(collected_metrics if collected_metrics else {'updated': 1})
             return
 
@@ -198,7 +199,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
             data = base64.b64decode(message.get('data'))
             logging.debug(f'{self.what} attrs={attributes} data={data}')
             item = json.loads(data) if data else None
-        await self._do_update_one(collected_metrics=collected_metrics, item=item, **attributes)
+        await self._do_update_one(collected_metrics, item=item, **attributes)
         self.write(collected_metrics)
 
     @cached_property
