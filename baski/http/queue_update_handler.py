@@ -7,11 +7,11 @@ from abc import ABC, abstractmethod
 from builtins import AttributeError
 from collections import defaultdict
 from copy import deepcopy
-from datetime import timedelta
 from distutils.util import strtobool
 from functools import partial, cached_property
 from http import HTTPStatus
 
+from dateutil.parser import parse
 from google.api_core.exceptions import Aborted, RetryError, DeadlineExceeded
 from google.cloud import firestore, pubsub
 from google.cloud.exceptions import ServiceUnavailable, GatewayTimeout, InternalServerError
@@ -26,7 +26,7 @@ from .request_handler import RequestHandler
 from ..concurrent import as_async
 from ..defs import START_OF_EPOCH
 from ..config import AppConfig
-from ..primitives import json
+from ..primitives import json, datetime
 
 __all__ = ['QueueUpdateHandler']
 
@@ -58,8 +58,23 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
     # Optional properties
     fields = None
-    arguments = None
-    default_obsolescence_hours = '12'
+    arguments = {}
+
+    _default_arguments = {
+        'obsolescence_hours': 12,
+        'item_id': None,
+        'now': datetime.now()
+    }
+
+    _arguments_cast_functions = {
+        str: str,
+        float: float,
+        int: int,
+        datetime.datetime: parse,
+        bool: lambda x: bool(strtobool(x)),
+    }
+
+    default_obsolescence_hours = 12
 
     body_schema = PubSubBodySchema()
 
@@ -106,7 +121,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
         return self.db.collection(self.collection_name)
 
     def update_from(self, obsolescence):
-        return self.now() - timedelta(hours=int(obsolescence))
+        return self.now() - datetime.timedelta(hours=int(obsolescence))
 
     def is_actual(self, item: typing.Dict, obsolescence):
         item = item or {}
@@ -128,7 +143,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
             raise HTTPError(HTTPStatus.BAD_REQUEST, str(e))
 
         item_id = self.get_query_argument('id', None)
-        args = self._arguments()
+        args = self._cgi_arguments()
 
         if item_id:
             collected_metrics = defaultdict(int)
@@ -169,7 +184,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
         """
         message = self.json_body.get('message')
-        attributes = (message.get('attributes') or {})
+        attributes = self._post_arguments(**(message.get('attributes') or {}))
         collected_metrics = defaultdict(int)
         logging.info(f'{self.what} attrs={attributes}')
         data = message.get('data')
@@ -185,19 +200,55 @@ class QueueUpdateHandler(RequestHandler, ABC):
     def project_id(self):
         return AppConfig().project_id
 
-    def _arguments(self):
-        args = deepcopy(self.arguments) if isinstance(self.arguments, dict) else {}
-        args = args | {'obsolescence': self.default_obsolescence_hours}
+    def _cgi_arguments(self):
+        args = self._all_arguments()
         for k, d in args.items():
-            args[k] = self.get_query_argument(k, d)
+            args[k] = self._cast_argument_value(k, self.get_query_argument(k, d))
         return args
 
+    def _post_arguments(self, **kwargs):
+        args = self._all_arguments()
+        for k, d in kwargs.items():
+            args[k] = self._cast_argument_value(k, d)
+        return args
+
+    def _all_arguments(self):
+        return deepcopy((self.arguments or {}) | self._default_arguments)
+
+    def _cast_argument_value(self, key, value):
+        args = self._all_arguments()
+        assert key in args, f"Unknown argument {key}"
+
+        if args[key] is None and isinstance(value, str):
+            return value
+
+        if value is None:
+            return None
+
+        expected_type = type(args[key])
+
+        if isinstance(value, expected_type):
+            return value
+
+        assert expected_type in self._arguments_cast_functions, f"Unknown type {expected_type}"
+        return self._arguments_cast_functions[expected_type](value)
+
+    def _can_cast_argument_value(self, key, value):
+        if value is None:
+            return True
+
+        assert self._cast_argument_value(key, str(value)) == value, f"Can't cast {value} of {key}"
+
     async def _do_publish_all(self, items_to_update, interval=0.001, **kwargs):
+        def _check_value(key, value):
+            self._cast_argument_value(key, value)
+            return str(value)
+
         topic_path = self.publisher.topic_path(self.project_id, self.topic_id)
+        kwargs = {k: _check_value(k, v) for k, v in kwargs.items() if v is not None}
 
         for item_id, item in items_to_update:
             kwargs['item_id'] = item_id
-            kwargs = {k: str(v) for k, v in kwargs.items() if v is not None}
             data = json.dumps(item).encode('utf-8')
             f = await as_async(partial(self.publisher.publish, topic_path, data, **kwargs))
             await asyncio.sleep(interval)
