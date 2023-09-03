@@ -184,7 +184,12 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
         """
         message = self.json_body.get('message')
-        attributes = self._post_arguments(**(message.get('attributes') or {}))
+        try:
+            attributes = self._post_arguments(**(message.get('attributes') or {}))
+        except ValueError as e:
+            logging.error(f"{self.what} attrs={message.get('attributes')} error={e}")
+            raise HTTPError(HTTPStatus.BAD_REQUEST, str(e))
+
         collected_metrics = defaultdict(int)
         logging.info(f'{self.what} attrs={attributes}')
         data = message.get('data')
