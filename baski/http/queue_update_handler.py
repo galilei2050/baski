@@ -194,11 +194,14 @@ class QueueUpdateHandler(RequestHandler, ABC):
         collected_metrics = defaultdict(int)
         logging.info(f'{self.what} attrs={attributes}')
         data = message.get('data')
+        item_id = attributes.get('item_id', None)
         item = None
         if data:
             data = base64.b64decode(message.get('data'))
             logging.debug(f'{self.what} attrs={attributes} data={data}')
             item = json.loads(data) if data else None
+        if item_id and item is None:
+            item = await self.item(item_id)
         await self._do_update_one(collected_metrics, item=item, **attributes)
         self.write(collected_metrics)
 
