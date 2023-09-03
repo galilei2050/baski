@@ -262,7 +262,8 @@ class QueueUpdateHandler(RequestHandler, ABC):
     async def _do_update_all(self, items_to_update, **kwargs):
         collected_metrics = defaultdict(int)
         for item_id, item in items_to_update:
-            await self._do_update_one(collected_metrics, item_id, item, **kwargs)
+            kwargs['item_id'] = item_id
+            await self._do_update_one(collected_metrics, item=item, **kwargs)
         return collected_metrics
 
     async def _do_update_one(self, collected_metrics, item_id, item, **kwargs):
