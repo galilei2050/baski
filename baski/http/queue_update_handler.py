@@ -61,7 +61,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
     arguments = {}
 
     _default_arguments = {
-        'obsolescence_hours': 12,
+        'obsolescence': 12,
         'item_id': None,
         'now': datetime.now()
     }
