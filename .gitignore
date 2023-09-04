@@ -3,7 +3,7 @@
 
 # Debug files
 /response.txt
-/response.json
+/app/response.json
 
 # VsCode
 .vscode

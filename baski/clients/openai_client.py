@@ -1,9 +1,12 @@
 import logging
-from copy import deepcopy
-
+import typing
 import aiohttp
 import openai
 import asyncio
+import io
+
+from copy import deepcopy
+
 from openai.openai_object import OpenAIObject
 
 
@@ -18,6 +21,10 @@ class OpenAiClient(object):
         self.user_prompts = user_prompts or {}
         self.default_cgi = default_cgi or _CGI
         self.chunk_length = chunk_length
+
+    async def transcribe(self, audio: io.FileIO) -> typing.AnyStr:
+        result = await openai.Audio.atranscribe("whisper-1", file=audio)
+        return result['text']
 
     def from_prompt(self, user_id, prompt, history=None, prepend=False, **params):
         history = [_check_message(msg) for msg in history or []]
