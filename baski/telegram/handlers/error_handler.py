@@ -26,7 +26,7 @@ class LogErrorHandler(metaclass=abc.ABCMeta):
     ignore_exceptions = (
         exceptions.ChatNotFound,
         exceptions.BotBlocked,
-        exceptions.UserDeactivated,
+        exceptions.Unauthorized,
         exceptions.InvalidUserId
     )
 
@@ -54,10 +54,8 @@ class LogErrorHandler(metaclass=abc.ABCMeta):
             await super().__call__(message, state=state, *args, **kwargs)
         except self.ignore_exceptions as e:
             logging.info(f"From {user_id} ignore: {e}")
-            raise
         except self.warning_exceptions as e:
             logging.warning(f"From {user_id}: {e}")
-            raise
         except Exception as e:
             logging.exception(f"From {user_id} error: {e}")
             raise

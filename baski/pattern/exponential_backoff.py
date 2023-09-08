@@ -18,5 +18,5 @@ async def retry(
             return await do(**kwargs)
         except exceptions as e:
             wait_time = i * random.randrange(min_wait_ms, max_wait_ms)
-            logging.warning(f"Got exception {e} and retry after {wait_time/1000} seconds")
+            logging.warning(f"Got exception {type(e)}: '{e}'. retry after {wait_time/1000} seconds")
             await asyncio.sleep(wait_time/1000)
