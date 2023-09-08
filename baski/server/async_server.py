@@ -72,6 +72,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
     def loop(self):
         loop = asyncio.get_event_loop()
         loop.set_default_executor(self.loop_executor)
+        loop.add_signal_handler(signal.SIGTERM, self.stop)
         return loop
 
     @cached_property
@@ -111,6 +112,23 @@ class AsyncServer(metaclass=abc.ABCMeta):
     def __call__(self, *args, **kwargs):
         return self.run()
 
+    def stop(self):
+        logging.warning("Got SIGTERM signal. Graceful shutdown start")
+        loop = self.loop
+        loop.call_later(1, self.check_tasks_and_stop)
+
+    def should_wait_task(self, t: asyncio.Task):
+        return False
+
+    def check_tasks_and_stop(self):
+        loop = self.loop
+        running_tasks = [t.get_coro() for t in asyncio.all_tasks(loop) if self.should_wait_task(t)]
+        if running_tasks:
+            logging.warning(f"Wait for tasks complete: {running_tasks}")
+            loop.call_later(1, self.check_tasks_and_stop)
+            return
+        self.loop.stop()
+
     def run(self) -> int:
         try:
             self.init()
@@ -138,4 +156,8 @@ class AsyncServer(metaclass=abc.ABCMeta):
 
     def execute(self):
         with self.loop_executor:
-            return self.loop.run_forever()
+            try:
+                return self.loop.run_forever()
+            finally:
+                self.loop.close()
+

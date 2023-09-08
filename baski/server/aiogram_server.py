@@ -1,6 +1,8 @@
 import abc
 import argparse
+import asyncio
 import logging
+import signal
 import typing
 import aiogram
 
@@ -81,12 +83,32 @@ class TelegramServer(AsyncServer):
         super().init(*args, **kwargs)
         self.register_handlers()
 
+    def should_wait_task(self, t: asyncio.Task):
+        return not t.done()
+
+    def stop(self):
+        self.dp.stop_polling()
+        super().stop()
+
+    def check_tasks_and_stop(self):
+        loop = self.loop
+        running_tasks = [t.get_coro() for t in asyncio.all_tasks(loop) if self.should_wait_task(t)]
+        if len(running_tasks) == 1 and '_run_app' in str(running_tasks[0]):
+            logging.info("Stop main app")
+            signal.raise_signal(signal.SIGINT)
+            loop.call_later(1, self.check_tasks_and_stop)
+            return
+        super().check_tasks_and_stop()
+
     def execute(self):
         with self.loop_executor:
-            if self.args['cloud']:
-                self.execute_webhook()
-            else:
-                self.execute_pooling()
+            try:
+                if self.args['cloud']:
+                    self.execute_webhook()
+                else:
+                    self.execute_pooling()
+            finally:
+                self.loop.close()
 
     def execute_pooling(self):
         self.loop.run_until_complete(self.bot.delete_webhook(drop_pending_updates=False))
@@ -95,7 +117,7 @@ class TelegramServer(AsyncServer):
     def execute_webhook(self):
         parts = urlparse(self.args['webhook_path'])
         self.executor.set_webhook(parts.path)
-
+        self.loop.add_signal_handler(signal.SIGINT, _raise_graceful_exit)
         web_app: web.Application = self.executor.web_app
 
         web_app.on_startup.append(self.register_webhook)
@@ -105,7 +127,7 @@ class TelegramServer(AsyncServer):
             web.get('/ping', ok),
         ])
 
-        web.run_app(app=web_app, port=self.args['port'])
+        web.run_app(app=web_app, port=self.args['port'], handle_signals=False, loop=self.loop)
 
     async def register_webhook(self, *args, **kwargs):
         webhook_url = self.args['webhook_path']
@@ -115,3 +137,8 @@ class TelegramServer(AsyncServer):
             return web.Response(body="registered\n")
         await retry(self.bot.set_webhook, exceptions=(exceptions.TelegramAPIError,), url=webhook_url)
         return web.Response(body="WebHook is registered\n")
+
+
+def _raise_graceful_exit() -> None:
+    from aiohttp.web_runner import GracefulExit
+    raise GracefulExit()

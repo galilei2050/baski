@@ -76,15 +76,19 @@ class OpenAiClient(object):
                     yield final_text
                 return
             except openai.error.InvalidRequestError as e:
-                raise RuntimeError(f"Invalid request \"{request_id}\" for user {user_id}: {e}")
+                raise
             except (openai.error.APIError,
-                    openai.error.RateLimitError,
                     openai.error.Timeout,
+                    openai.error.APIConnectionError,
                     openai.error.ServiceUnavailableError,
                     aiohttp.ClientError,
                     asyncio.exceptions.TimeoutError) as e:
                 logging.warning(f"{i} Get exception from OpenAI: {e}")
-                await asyncio.sleep(i)
+                try:
+                    await asyncio.sleep(i)
+                except asyncio.exceptions.CancelledError:
+                    logging.warning("OpenAI request is cancelled")
+                    return
         raise RuntimeError("OpenAI is not available")
 
 
