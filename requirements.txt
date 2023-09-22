@@ -28,3 +28,4 @@ numpy
 
 # 3rd party clients
 openai
+tiktoken

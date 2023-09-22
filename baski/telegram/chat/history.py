@@ -1,3 +1,4 @@
+import datetime
 import sys
 
 from aiogram import types
@@ -52,8 +53,12 @@ class ChatHistory(object):
             fmt=fmt
         )
 
-    def last(self, n, fmt="raw"):
-        return _format(self._data_proxy['history'][-n:], fmt)
+    def last(self, n, fr=None, fmt="raw"):
+        history = self._data_proxy['history']
+        if fr and isinstance(fr, datetime.datetime):
+            date_from = fr.timestamp()
+            history = [msg for msg in history if msg['date'] > date_from]
+        return _format(history, fmt)
 
     def all(self, fmt="raw"):
         return _format(self._data_proxy['history'], fmt)
@@ -72,7 +77,7 @@ def _message_to_dict(message: types.Message, role):
     return {
         k: v for k, v in message.to_python().items()
         if k in _message_fields_to_store
-    } | {'role': role}
+    } | {'role': role, 'date_dt': message['date']}
 
 
 def _format(messages: list, fmt):

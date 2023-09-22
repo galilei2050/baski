@@ -4,27 +4,39 @@ import aiohttp
 import openai
 import asyncio
 import io
+import tiktoken
 
 from copy import deepcopy
 
 from openai.openai_object import OpenAIObject
+from baski import monitoring
 
 
 __all__ = ["OpenAiClient"]
 
+OPENAI_INPUT_TEXT = "openai_in_text"
+OPENAI_OUTPUT_TEXT = "openai_out_text"
+
 
 class OpenAiClient(object):
 
-    def __init__(self, api_key, system_prompt, user_prompts=None, default_cgi=None, chunk_length=128):
+    def __init__(
+            self, api_key, system_prompt, user_prompts=None, default_cgi=None, chunk_length=128,
+            telemetry: monitoring.Telemetry=None
+    ):
         openai.api_key = api_key
         self.system_prompt = system_prompt
         self.user_prompts = user_prompts or {}
         self.default_cgi = default_cgi or _CGI
         self.chunk_length = chunk_length
+        self.token_encoder = tiktoken.get_encoding("cl100k_base")
+        self.telemetry = telemetry
 
-    async def transcribe(self, audio: io.FileIO) -> typing.AnyStr:
+    async def transcribe(self, user_id, audio: io.FileIO) -> typing.AnyStr:
         result = await openai.Audio.atranscribe("whisper-1", file=audio)
-        return result['text']
+        text = result['text']
+        self._log_response(user_id, text, "transcribe", "whisper-1")
+        return text
 
     def from_prompt(self, user_id, prompt, history=None, prepend=False, **params):
         history = [_check_message(msg) for msg in history or []]
@@ -49,6 +61,8 @@ class OpenAiClient(object):
     async def _create_message(self, user_id, history, request_id, **params):
         assert isinstance(history, list)
         messages = [_from_system(self.system_prompt)] + history
+        this_cgi = self.default_cgi.copy() | params
+        self._log_request(user_id, messages, request_id, this_cgi.get('model', 'undefined'))
         for i in range(1, 50):
             try:
                 this_cgi = self.default_cgi.copy() | params
@@ -74,6 +88,7 @@ class OpenAiClient(object):
                 final_text = ''.join(chunks)
                 if final_text != yielded_text:
                     yield final_text
+                self._log_response(user_id, final_text, request_id, this_cgi.get('model', 'undefined'))
                 return
             except openai.error.InvalidRequestError as e:
                 raise
@@ -90,6 +105,32 @@ class OpenAiClient(object):
                     logging.warning("OpenAI request is cancelled")
                     return
         raise RuntimeError("OpenAI is not available")
+
+    def _log_request(self, user_id, messages, request_id, model):
+        if not self.telemetry:
+            return
+        self.telemetry.add(
+            user_id=user_id,
+            event_type=OPENAI_INPUT_TEXT,
+            payload={
+                "request_id": request_id,
+                "tokens": sum([len(self.token_encoder.encode(msg['content'])) for msg in messages]),
+                "model": model
+            }
+        )
+
+    def _log_response(self, user_id, text, request_id, model):
+        if not self.telemetry:
+            return
+        self.telemetry.add(
+            user_id=user_id,
+            event_type=OPENAI_OUTPUT_TEXT,
+            payload={
+                "request_id": request_id,
+                "tokens": len(self.token_encoder.encode(text)),
+                "model": model
+            }
+        )
 
 
 def _check_message(msg):
@@ -112,7 +153,7 @@ def from_ai(msg):
 
 
 _CGI = {
-    "model": "gpt-3.5-turbo-0613",
+    "model": "gpt-3.5-turbo",
     "n": 1,
     "temperature": 1.0,
     "timeout": 10 * 60,
