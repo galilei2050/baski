@@ -38,17 +38,21 @@ class OpenAiClient(object):
         self._log_response(user_id, text, "transcribe", "whisper-1")
         return text
 
-    def from_prompt(self, user_id, prompt, history=None, prepend=False, **params):
-        history = [_check_message(msg) for msg in history or []]
-        prompt_cfg, request_id = {}, "custom"
-        if prompt in self.user_prompts:
-            request_id=prompt
-            prompt_cfg = deepcopy(self.user_prompts[prompt])
-            prompt_text = prompt_cfg.pop('prompt')
-            if params:
-                prompt_text = prompt_text.format(**params)
+    def from_prompt(self, user_id, prompt, history=None, prepend=False, streaming=True, **params):
+        if streaming:
+            return self.from_prompt_streaming(user_id, prompt, history, prepend, **params)
         else:
-            prompt_text = prompt
+            return self.from_prompt_gather(user_id, prompt, history, prepend, **params)
+
+    async def from_prompt_gather(self, user_id, prompt, history=None, prepend=False, **params):
+        result = None
+        async for chunk in self.from_prompt_streaming(user_id, prompt, history, prepend, **params):
+            result = chunk
+        return result
+
+    def from_prompt_streaming(self, user_id, prompt, history=None, prepend=False, **params):
+        history = [_check_message(msg) for msg in history or []]
+        prompt_text, prompt_cfg, request_id = self._get_prompt_text_cfg(prompt, **params)
 
         message = from_user(prompt_text)
         return self._create_message(
@@ -57,6 +61,18 @@ class OpenAiClient(object):
             request_id=request_id,
             **prompt_cfg
         )
+
+    def _get_prompt_text_cfg(self, prompt, **params):
+        prompt_cfg, request_id = {}, "custom"
+        if prompt in self.user_prompts:
+            request_id = prompt
+            prompt_cfg = deepcopy(self.user_prompts[prompt])
+            prompt_text = prompt_cfg.pop('prompt')
+            if params:
+                prompt_text = prompt_text.format(**params)
+        else:
+            prompt_text = prompt
+        return prompt_text, prompt_cfg, request_id
 
     async def _create_message(self, user_id, history, request_id, **params):
         assert isinstance(history, list)
