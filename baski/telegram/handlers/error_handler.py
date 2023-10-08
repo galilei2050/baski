@@ -13,6 +13,7 @@ class SaySorryHandler(object):
 
     def __call__(self, update: types.Update, exception: Exception, *args, **kwargs):
         text = self.get_text_from_exception(exception)
+        logging.warning(f"{exception}")
         message = _get_message_from_update(update)
         if message:
             return message.reply(**text)

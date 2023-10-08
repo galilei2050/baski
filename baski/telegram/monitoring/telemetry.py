@@ -49,10 +49,9 @@ class MessageTelemetry(Telemetry):
             }
         if message.photo:
             data = data | {
-                "photo_width": message.photo[0].width,
-                "photo_height": message.photo[0].height,
-                "photo_file_size": message.photo[0].file_size,
-                "photo_cnt": len(message.photo)
+                "photo_width": message.photo[-1].width,
+                "photo_height": message.photo[-1].height,
+                "photo_file_size": message.photo[-1].file_size,
             }
 
         return data
