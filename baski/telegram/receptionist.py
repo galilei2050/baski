@@ -10,8 +10,11 @@ class Receptionist(object):
 
     def __init__(
             self,
-            dp: aiogram.Dispatcher):
+            dp: aiogram.Dispatcher,
+            debug: False,
+    ):
         self._dp = dp
+        self._debug = debug
         self._error_handler = None
         self._setup_handlers()
 
@@ -46,7 +49,8 @@ class Receptionist(object):
         Example: we ask the user to enter a token, but he changed his mind and enters another command.
         '''
         self._check_callback(callback)
-        callback = self._dp.async_task(callback)
+        if not self._debug:
+            callback = self._dp.async_task(callback)
 
         if 'commands' not in kwargs:
             self._dp.register_message_handler(callback,~Text(startswith="/"), *custom_filters, **kwargs)
@@ -56,7 +60,8 @@ class Receptionist(object):
 
     def add_button_callback(self, callback, *custom_filters, **kwargs):
         self._check_callback(callback)
-        callback = self._dp.async_task(callback)
+        if not self._debug:
+            callback = self._dp.async_task(callback)
 
         self._dp.register_callback_query_handler(callback, *custom_filters, **kwargs)
 

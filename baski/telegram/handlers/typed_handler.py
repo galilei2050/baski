@@ -34,11 +34,13 @@ class TypedHandler(object):
             state: dispatcher.FSMContext,
             *args, **kwargs
     ):
+        result = None
         if isinstance(message, types.Message):
-            return await self.on_message(message, *args, state=state, **kwargs)
+            result = await self.on_message(message, *args, state=state, **kwargs)
         elif isinstance(message, types.CallbackQuery):
-            return await self.on_callback(message, *args, state=state, **kwargs)
+            result = await self.on_callback(message, *args, state=state, **kwargs)
         elif isinstance(message, types.PreCheckoutQuery):
-            return await self.on_pre_checkout(message, *args, state=state, **kwargs)
+            result = await self.on_pre_checkout(message, *args, state=state, **kwargs)
         else:
             raise TypeError(f"Unsupported message type: {type(message)}")
+        return result if result else True

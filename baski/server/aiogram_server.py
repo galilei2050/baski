@@ -72,7 +72,7 @@ class TelegramServer(AsyncServer):
 
     @cached_property
     def receptionist(self):
-        return receptionist.Receptionist(self.dp)
+        return receptionist.Receptionist(self.dp, debug=self.args['debug'])
 
     def add_arguments(self, parser: argparse.ArgumentParser):
         super().add_arguments(parser)

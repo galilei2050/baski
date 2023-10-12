@@ -3,6 +3,7 @@ import typing
 import abc
 import asyncio
 from aiogram import types, dispatcher
+from aiogram.dispatcher.handler import CancelHandler, SkipHandler
 from aiogram.utils import exceptions
 
 
@@ -52,7 +53,9 @@ class LogErrorHandler(metaclass=abc.ABCMeta):
             user_id = message.from_user.id
 
         try:
-            await super().__call__(message, state=state, *args, **kwargs)
+            return await super().__call__(message, state=state, *args, **kwargs)
+        except (SkipHandler, CancelHandler):
+            raise
         except self.ignore_exceptions as e:
             logging.info(f"From {user_id} ignore: {e}")
         except self.warning_exceptions as e:
