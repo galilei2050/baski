@@ -31,7 +31,7 @@ class UnprocessedMiddleware(BaseMiddleware):
         self.bucket = storage.Bucket(storage_client, storage_bucket)
 
     async def on_post_process_message(self, message: types.Message, results, data: dict):
-        if results:
+        if data:
             return
         await message.reply(I_DO_NOT_KNOW)
         if self.telemetry:
