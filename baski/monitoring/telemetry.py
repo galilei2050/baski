@@ -12,9 +12,10 @@ __all__ = ['Telemetry']
 class Telemetry(object):
     _schema = EventSchema()
 
-    def __init__(self, publisher: pubsub.PublisherClient, project_id, topic_name="event"):
+    def __init__(self, publisher: pubsub.PublisherClient, project_id, topic_name="event", publish=True):
         self.publisher = publisher
         self.topic_path = self.publisher.topic_path(project_id, topic_name)
+        self.publish = publish
 
     def add(self, user_id: str, event_type, payload: dict, timestamp=None):
         try:
@@ -26,7 +27,8 @@ class Telemetry(object):
                 "payload": json.dumps(_clean_dict(payload)),
             }
             queue_item = self._schema.dumps(data)
-            self.publisher.publish(self.topic_path, data=queue_item.encode('utf-8'))
+            if self.publish:
+                self.publisher.publish(self.topic_path, data=queue_item.encode('utf-8'))
         except Exception as e:
             logging.warning(f"Failed to add telemetry event: {e}")
 
