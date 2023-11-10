@@ -94,7 +94,7 @@ class RequestHandler(TornadoHandler):
     def _rate_limit(self):
         if not self.concurrent_limit:
             return
-        web_tasks = [t for t in asyncio.all_tasks() if 'tornado/web.py' in t.get_coro().cr_code.co_filename]
+        web_tasks = [t for t in asyncio.all_tasks() if t.get_coro() and 'tornado/web.py' in t.get_coro().cr_code.co_filename]
         if len(web_tasks) > self.concurrent_limit:
             raise HTTPError(HTTPStatus.TOO_MANY_REQUESTS,
                             f"Concurrent limit is {self.concurrent_limit} running tasks {len(web_tasks)}")

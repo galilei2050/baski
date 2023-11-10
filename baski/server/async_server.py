@@ -66,7 +66,8 @@ class AsyncServer(metaclass=abc.ABCMeta):
 
     def init(self, db=None):
         configure_logging(self.config['debug'])
-        self._setup_cloud_logging()
+        if self.config['cloud']:
+            self._setup_cloud_logging(self.config['debug'])
 
     @cached_property
     def loop(self):
@@ -149,10 +150,10 @@ class AsyncServer(metaclass=abc.ABCMeta):
             raise
         return 1
 
-    def _setup_cloud_logging(self):
+    def _setup_cloud_logging(self, debug=False):
         self.logging_client = cloud_logging.Client()
         self.logging_client.get_default_handler()
-        self.logging_client.setup_logging()
+        self.logging_client.setup_logging(log_level=logging.DEBUG if debug else logging.INFO)
 
     def execute(self):
         with self.loop_executor:
