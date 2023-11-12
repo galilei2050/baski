@@ -27,5 +27,5 @@ pandas
 numpy
 
 # 3rd party clients
-openai
+openai<1.0.0
 tiktoken
