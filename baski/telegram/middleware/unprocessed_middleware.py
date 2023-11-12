@@ -82,7 +82,8 @@ class UnprocessedMiddleware(BaseMiddleware):
         buffer: io.FileIO = await retry(
             telegram_object.download,
             exceptions=(TelegramAPIError,),
-            destination_dir=tempdir
+            destination_dir=tempdir,
+            service_name="Open AI",
         )
         buffer.flush()
         return buffer.name

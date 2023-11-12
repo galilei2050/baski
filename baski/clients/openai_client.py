@@ -5,11 +5,11 @@ import openai
 import asyncio
 import io
 import tiktoken
-
+import json
 from copy import deepcopy
 
 from openai.openai_object import OpenAIObject
-from baski import monitoring
+from baski import monitoring, pattern
 
 
 __all__ = ["OpenAiClient"]
@@ -19,6 +19,15 @@ OPENAI_OUTPUT_TEXT = "openai_out_text"
 
 
 class OpenAiClient(object):
+    _retry_exceptions = (
+        openai.error.APIError,
+        openai.error.Timeout,
+        openai.error.APIConnectionError,
+        openai.error.ServiceUnavailableError,
+        json.decoder.JSONDecodeError,
+        aiohttp.ClientError,
+        asyncio.exceptions.TimeoutError
+    )
 
     def __init__(
             self, api_key, system_prompt, user_prompts=None, default_cgi=None, chunk_length=128,
@@ -33,7 +42,12 @@ class OpenAiClient(object):
         self.telemetry = telemetry
 
     async def transcribe(self, user_id, audio: io.FileIO) -> typing.AnyStr:
-        result = await openai.Audio.atranscribe("whisper-1", file=audio)
+        result = await pattern.retry(
+            openai.Audio.atranscribe,
+            exceptions=self._retry_exceptions,
+            service_name="Open AI",
+            model="whisper-1", file=audio
+        )
         text = result['text']
         self._log_response(user_id, text, "transcribe", "whisper-1")
         return text
@@ -112,6 +126,7 @@ class OpenAiClient(object):
                     openai.error.Timeout,
                     openai.error.APIConnectionError,
                     openai.error.ServiceUnavailableError,
+                    json.decoder.JSONDecodeError,
                     aiohttp.ClientError,
                     asyncio.exceptions.TimeoutError) as e:
                 logging.warning(f"{i} Get exception from OpenAI: {e}")

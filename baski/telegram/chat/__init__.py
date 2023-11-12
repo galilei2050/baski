@@ -1,5 +1,6 @@
 import functools
 import typing
+import aiogram
 from aiogram.utils.exceptions import RetryAfter, RestartingTelegram, NetworkError
 from .history import *
 from ...pattern import retry
@@ -13,4 +14,7 @@ async def aiogram_retry(
         **kwargs):
     exceptions = exceptions or (RestartingTelegram, NetworkError, RetryAfter)
     do = functools.partial(do, *args, **kwargs)
-    return await retry(do, exceptions, times)
+    try:
+        return await retry(do, exceptions, times, service_name="Telegram")
+    except aiogram.utils.exceptions.MessageNotModified:
+        pass
