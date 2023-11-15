@@ -94,10 +94,10 @@ class RequestHandler(TornadoHandler):
     def _rate_limit(self):
         if not self.concurrent_limit:
             return
-        web_tasks = [t for t in asyncio.all_tasks() if t.get_coro() and 'tornado/web.py' in t.get_coro().cr_code.co_filename]
-        if len(web_tasks) > self.concurrent_limit:
+        web_tasks_cnt = sum([_is_tornado_task(t) for t in asyncio.all_tasks() if _is_tornado_task(t)])
+        if web_tasks_cnt > self.concurrent_limit:
             raise HTTPError(HTTPStatus.TOO_MANY_REQUESTS,
-                            f"Concurrent limit is {self.concurrent_limit} running tasks {len(web_tasks)}")
+                            f"Concurrent limit is {self.concurrent_limit} running tasks {web_tasks_cnt}")
 
     def _auth(self):
         if self._unittest or self._debug:
@@ -133,3 +133,15 @@ class RequestValidationError(HTTPError):
     def __init__(self, errors, *args, **kwargs):
         super(RequestValidationError, self).__init__(*args, **kwargs)
         self.errors = errors
+
+
+def _is_tornado_task(task: asyncio.Task):
+    if not task:
+        return False
+    coro = task.get_coro()
+    if not coro or not hasattr(coro, 'cr_code'):
+        return False
+    code = coro.cr_code
+    if not code or not hasattr(code, 'co_filename'):
+        return False
+    return 'tornado/web.py' in code.co_filename
