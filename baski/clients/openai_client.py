@@ -187,6 +187,6 @@ _CGI = {
     "model": "gpt-3.5-turbo",
     "n": 1,
     "temperature": 1.0,
-    "timeout": 10 * 60,
-    "request_timeout": 1 * 60,
+    "timeout": 20 * 60,
+    "request_timeout": 5 * 60,
 }
