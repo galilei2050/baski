@@ -129,7 +129,7 @@ class OpenAiClient(object):
                     json.decoder.JSONDecodeError,
                     aiohttp.ClientError,
                     asyncio.exceptions.TimeoutError) as e:
-                logging.warning(f"{i} Get exception from OpenAI: {e}")
+                logging.warning(f"{i} Get {type(e)} exception from OpenAI: {e}")
                 try:
                     await asyncio.sleep(i)
                 except asyncio.exceptions.CancelledError:
