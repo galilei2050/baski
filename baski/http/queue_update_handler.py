@@ -226,7 +226,8 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
     def _cast_argument_value(self, key, value):
         args = self._all_arguments()
-        assert key in args, f"Unknown argument {key}"
+        if key not in args:
+            raise HTTPError(422, f"Unknown argument {key}")
 
         if args[key] is None and isinstance(value, str):
             return value
