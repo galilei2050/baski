@@ -64,7 +64,7 @@ class HttpClient(object):
         self._base_url = base_url
         self._proxy = proxy
         self._req_interval = timedelta(seconds=req_interval_sec)
-        self._next_req = datetime.now()
+        self._next_req = datetime.now() + self._req_interval
         self._headers = headers or {}
         for h, v in [(aiohttp.hdrs.USER_AGENT, _UA), (aiohttp.hdrs.CONTENT_TYPE, CONTENT_TYPE_JSON)]:
             if h not in self._headers and h.lower() not in self._headers:
@@ -102,7 +102,7 @@ class HttpClient(object):
         if self._is_session_open():
             try:
                 self._context_cnt += 1
-                return await self.request(self._session, url, method, data, max_attempts, **cgi)
+                return await self.request(self._session, url, method, data, max_attempts, fail_fast=fail_fast, **cgi)
             finally:
                 self._context_cnt -= 1
 
