@@ -125,7 +125,7 @@ class HttpClient(object):
         assert method in aiohttp.hdrs.METH_ALL
 
         async def retry(err):
-            if not max_attempts:
+            if not max_attempts or max_attempts < 1:
                 raise err
             proxy = f'through {self._proxy}' if self._proxy else ''
             logging.warning(f"Another attempt to {self._base_url} due to {err}. {proxy}")
@@ -141,11 +141,11 @@ class HttpClient(object):
                     params=cgi,
                     ssl_context=self._ssl_ctx
             ) as response:
-                return await self._process_response(url=url, response=response, max_attempts=max_attempts, **cgi)
+                return await self._process_response(url=url, response=response, max_attempts=max_attempts-1, **cgi)
 
         # Specific exceptions
         except aiohttp.ClientResponseError as e:
-            _raise_for_status(e.status, e.message)
+            self.raise_for_status(e.status, e.message)
             raise e
 
         except aiohttp.ClientSSLError as e:
@@ -189,7 +189,7 @@ class HttpClient(object):
 
         result = await self._read_body(response)
 
-        _raise_for_status(response.status, response.reason, result)
+        self.raise_for_status(response.status, response.reason, result)
         return result
 
     async def _read_body(self, response: aiohttp.ClientResponse):
@@ -217,21 +217,20 @@ class HttpClient(object):
             return xmltodict.parse(result)
         return result
 
+    def raise_for_status(self, status, reason, body=None):
+        if status == HTTPStatus.OK:
+            return
 
-def _raise_for_status(status, reason, body=None):
-    if status == HTTPStatus.OK:
-        return
+        if status in [HTTPStatus.FORBIDDEN, HTTPStatus.UNAUTHORIZED, HTTPStatus.PAYMENT_REQUIRED]:
+            raise HttpUnauthorizedError(status, reason, body)
 
-    if status in [HTTPStatus.FORBIDDEN, HTTPStatus.UNAUTHORIZED, HTTPStatus.PAYMENT_REQUIRED]:
-        raise HttpUnauthorizedError(status, reason, body)
+        if status in [HTTPStatus.NOT_FOUND]:
+            raise HttpNotFoundError(status, reason, body)
 
-    if status in [HTTPStatus.NOT_FOUND]:
-        raise HttpNotFoundError(status, reason, body)
+        if HTTPStatus.BAD_REQUEST <= status < HTTPStatus.INTERNAL_SERVER_ERROR:
+            raise HttpBadRequestError(status, reason, body)
 
-    if HTTPStatus.BAD_REQUEST <= status < HTTPStatus.INTERNAL_SERVER_ERROR:
-        raise HttpBadRequestError(status, reason, body)
+        if HTTPStatus.INTERNAL_SERVER_ERROR <= status:
+            raise HttpServerError(status, reason, body)
 
-    if HTTPStatus.INTERNAL_SERVER_ERROR <= status:
-        raise HttpServerError(status, reason, body)
-
-    raise HttpException(status, reason, body)
+        raise HttpException(status, reason, body)
