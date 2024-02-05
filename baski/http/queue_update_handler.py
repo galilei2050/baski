@@ -293,27 +293,27 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
         # Recoverable errors - Just transform to correct http code
         except (HttpTimeoutError, HttpConnectionError) as e:
-            logging.info(f"id:\"{item_id}\" {self.what} http timeout: {e}")
+            logging.info(f"id:\"{item_id}\" - \"{self.what}\" http timeout: {e}")
             collected_metrics["http_connection_error"] += 1
             raise HTTPError(HTTPStatus.IM_A_TEAPOT, str(e))
 
         except (HttpUnauthorizedError, HttpServerError, HttpBadRequestError) as e:
-            logging.warning(f'id:\"{item_id}\" {self.what} http source: {e}')
+            logging.warning(f'id:\"{item_id}\" - \"{self.what}\" http source: {e}')
             collected_metrics["source_error"] += 1
             raise HTTPError(e.code, str(e))
 
         except (ServiceUnavailable, DeadlineExceeded, GatewayTimeout, InternalServerError, Aborted, RetryError) as e:
-            logging.warning(f'id:\"{item_id}\" {self.what} gcloud error: {e}')
+            logging.warning(f'id:\"{item_id}\" - \"{self.what}\" gcloud error: {e}')
             collected_metrics["grpc_error"] += 1
             raise HTTPError(HTTPStatus.REQUEST_TIMEOUT, str(e))
 
         # Errors that are not recoverable and human help is required.
         except ValidationError as e:
-            logging.critical(f"id:\"{item_id}\" {self.what} validation exception: {e}")
+            logging.critical(f"id:\"{item_id}\" - \"{self.what}\" validation exception: {e}")
             collected_metrics["invalid_response"] += 1
             return
 
         except (ValueError, TypeError, KeyError, AssertionError, AttributeError) as e:
-            logging.critical(f"id:\"{item_id}\" {self.what} algorithm error: {e}", stack_info=True)
+            logging.critical(f"id:\"{item_id}\" - \"{self.what}\" algorithm error: {e}", stack_info=True)
             collected_metrics["internal_exception"] += 1
             return

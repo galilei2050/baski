@@ -1,9 +1,16 @@
+import datetime as dt
+
 from marshmallow import fields
 
 from ..primitives.datetime import to_utc
 
 
 class BigQueryDateTime(fields.DateTime):
+
+    def _deserialize(self, value, attr, data, **kwargs) -> dt.datetime:
+        value = value if isinstance(value, dt.datetime) else super()._deserialize(value, attr, data, **kwargs)
+        return to_utc(value)
+
     def _serialize(self, value, attr, obj, **kwargs) -> str | float | None:
         if value is None:
             return None
