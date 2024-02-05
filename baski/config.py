@@ -74,7 +74,9 @@ class AppConfig(metaclass=Singleton):
     def load_db(self, db: firestore.Client):
         try:
             for doc in db.collection('config').stream():
-                self[doc.id] = Config(data=doc.to_dict(), path=doc.id)
+                old = dict(self[doc.id])
+                new = doc.to_dict()
+                self[doc.id] = Config(data=old | new, path=doc.id)
         except PermissionDenied as e:
             logging.error(f'Failed load config from firestore: {e}')
 
