@@ -141,7 +141,9 @@ class HttpClient(object):
                     params=cgi,
                     ssl_context=self._ssl_ctx
             ) as response:
-                return await self._process_response(url=url, response=response, max_attempts=max_attempts-1, **cgi)
+                result = await self._read_body(response)
+                self.raise_for_status(response.status, response.reason, result)
+                return result
 
         # Specific exceptions
         except aiohttp.ClientResponseError as e:
@@ -179,18 +181,6 @@ class HttpClient(object):
             headers=self._headers,
             timeout=self._timeout
         )
-
-    async def _process_response(self, url, response: aiohttp.ClientResponse, max_attempts, **cgi):
-        if response.status in {HTTPStatus.TOO_MANY_REQUESTS, HTTPStatus.GATEWAY_TIMEOUT} and max_attempts:
-            parsed_url = urlparse(url)
-            logging.warning(f"Another attempt to {parsed_url.netloc} due to 429.")
-            await self._wait()
-            return await self.fetch(url=url, max_attempts=max_attempts - 1, **cgi)
-
-        result = await self._read_body(response)
-
-        self.raise_for_status(response.status, response.reason, result)
-        return result
 
     async def _read_body(self, response: aiohttp.ClientResponse):
         if response.content.at_eof() or response.content.exception() or \

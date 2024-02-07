@@ -1,4 +1,5 @@
 import typing
+from http import HTTPStatus
 
 import aiohttp
 from yarl import URL
@@ -36,26 +37,20 @@ class ScrapflyClient(HttpClient):
         tries = [('false', 'true', False), ('true', 'true', True)]
         if render_js is None:
             tries = [('false', 'false', False)] + tries
-
+        result = {}
         for asp, js, last in tries:
-            try:
-                data = await super().request(
-                    session,
-                    URL("/scrape").update_query({
-                        'url': str(URL(url).update_query(cgi)),
-                        'key': self._api_key, 'asp': str(asp), 'render_js': str(js)
-                    }),
-                    method,
-                    data,
-                    max_attempts=1,
-                    fail_fast=fail_fast
-                )
-                result = data.get('result')
-                if result['success']:
-                    return result
-                if not last:
-                    continue
-                self.raise_for_status(result["status_code"], result['reason'], result['content'])
-            except HttpException as e:
-                if last:
-                    raise
+            data = await super().request(
+                session,
+                URL("/scrape").update_query({
+                    'url': str(URL(url).update_query(cgi)),
+                    'key': self._api_key, 'asp': str(asp), 'render_js': str(js)
+                }),
+                method,
+                data,
+                max_attempts=0,
+                fail_fast=fail_fast
+            )
+            result = data.get('result')
+            if result['success']:
+                return result
+        self.raise_for_status(result.get("status_code", HTTPStatus.IM_A_TEAPOT), result.get('reason', 'Unknown reason'))
