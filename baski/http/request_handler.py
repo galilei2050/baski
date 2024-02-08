@@ -26,7 +26,7 @@ def _prepare_response(payload, *, ok=True):
 
 
 class RequestHandler(TornadoHandler):
-    _token = token()
+    _token = str(token())
     _debug = is_debug()
     _unittest = is_test()
 
@@ -102,22 +102,21 @@ class RequestHandler(TornadoHandler):
     def _auth(self):
         if self._unittest or self._debug:
             return
-
+        actual_token = None
         try:
-            actual_token = None
-
-            authorization_header = self.request.headers.get('Authorization', '').split()
-            if len(authorization_header) == 2:
-                _, actual_token = authorization_header
+            authorization_header = self.request.headers.get('Authorization', None)
+            if authorization_header:
+                _, actual_token = authorization_header.split()
 
             cgi_token = self.get_query_argument('token', None)
             if cgi_token and not actual_token:
                 actual_token = cgi_token
-
-            if actual_token == self._token:
-                return
-        except (KeyError, ValueError):
+        except (KeyError, ValueError) as e:
             pass
+
+        if actual_token == self._token:
+            return
+
         raise HTTPError(403)
 
     def get_date_query_arument(self, f='date'):
