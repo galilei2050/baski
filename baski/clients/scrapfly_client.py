@@ -43,7 +43,8 @@ class ScrapflyClient(HttpClient):
                 session,
                 URL("/scrape").update_query({
                     'url': str(URL(url).update_query(cgi)),
-                    'key': self._api_key, 'asp': str(asp), 'render_js': str(js)
+                    'key': self._api_key, 'asp': str(asp), 'render_js': str(js),
+                    'country': 'us,ca'
                 }),
                 method,
                 data,
