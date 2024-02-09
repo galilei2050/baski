@@ -39,6 +39,9 @@ def datetime_hook(doc, add_tz=False):
     for k, v in doc.items():
         if not isinstance(v, str):
             continue
+        if v.isnumeric():
+            continue
+        # Try to parse the string as a date if it is not a number
         try:
             d = parse(v, fuzzy=False, fuzzy_with_tokens=False)
             if add_tz and d.tzinfo is None:
