@@ -148,7 +148,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
         self.logging_client.get_default_handler()
         self.logging_client.setup_logging(log_level=logging.DEBUG if debug else logging.INFO)
 
-    def _setup_local_logging(debug=False):
+    def _setup_local_logging(self, debug=False):
         ch = local_logging.StreamHandler()
         ch.setLevel(logging.DEBUG if debug else logging.INFO)
         ch.setFormatter(logging.Formatter(style='{', fmt='{levelname:5}{lineno:4}:{filename:30}{message}'))
