@@ -92,6 +92,9 @@ class QueueUpdateHandler(RequestHandler, ABC):
     def db(self) -> firestore.AsyncClient:
         raise NotImplementedError()
 
+    def get_log_msg(self, item_id, message):
+        return f'{self.what} [id={item_id}]: {message}'
+
     def get_fields(self):
         fields = self.fields if self.fields else []
         fields = set(list(fields) + ['id', 'updated'])
@@ -192,7 +195,6 @@ class QueueUpdateHandler(RequestHandler, ABC):
             raise HTTPError(HTTPStatus.BAD_REQUEST, str(e))
 
         collected_metrics = defaultdict(int)
-        logging.info(f'{self.what} attrs={attributes}')
         data = message.get('data')
         item_id = attributes.get('item_id', None)
         item = None
@@ -274,10 +276,10 @@ class QueueUpdateHandler(RequestHandler, ABC):
     async def _do_update_one(self, collected_metrics, item_id, item, **kwargs):
         try:
             if self.is_actual(item, kwargs.get('obsolescence', self.default_obsolescence_hours)):
-                logging.info('%s: %s is actual', self.what, item_id)
+                logging.info(self.get_log_msg(item_id, "is actual"))
                 collected_metrics['actual'] += 1
                 return
-            logging.info('%s: %s processing', self.what, item_id)
+            logging.info(self.get_log_msg(item_id, f' kwargs={kwargs}'))
 
             metrics = await self.update_one(item_id, item, **kwargs)
             if isinstance(metrics, dict):
@@ -287,33 +289,33 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
         # Exceptions that are not actually errors just warnings
         except HttpNotFoundError:
-            logging.warning(f"id:\"{item_id}\" {self.what} not found")
+            logging.warning(self.get_log_msg(item_id, "not found"))
             collected_metrics["item_not_found"] += 1
             return
 
         # Recoverable errors - Just transform to correct http code
         except (HttpTimeoutError, HttpConnectionError) as e:
-            logging.info(f"id:\"{item_id}\" - \"{self.what}\" http timeout: {e}")
+            logging.info(self.get_log_msg(item_id, f"http timeout: {e}"))
             collected_metrics["http_connection_error"] += 1
             raise HTTPError(HTTPStatus.IM_A_TEAPOT, str(e))
 
         except (HttpUnauthorizedError, HttpServerError, HttpBadRequestError) as e:
-            logging.warning(f'id:\"{item_id}\" - \"{self.what}\" http source: {e}')
+            logging.warning(self.get_log_msg(item_id, f"http source: {e}"))
             collected_metrics["source_error"] += 1
             raise HTTPError(e.code, str(e))
 
         except (ServiceUnavailable, DeadlineExceeded, GatewayTimeout, InternalServerError, Aborted, RetryError) as e:
-            logging.warning(f'id:\"{item_id}\" - \"{self.what}\" gcloud error: {e}')
+            logging.warning(self.get_log_msg(item_id, f' gcloud error: {e}'))
             collected_metrics["grpc_error"] += 1
             raise HTTPError(HTTPStatus.REQUEST_TIMEOUT, str(e))
 
         # Errors that are not recoverable and human help is required.
         except ValidationError as e:
-            logging.critical(f"id:\"{item_id}\" - \"{self.what}\" validation exception: {e}")
+            logging.critical(self.get_log_msg(item_id, f"validation exception: {e}"))
             collected_metrics["invalid_response"] += 1
             return
 
         except (ValueError, TypeError, KeyError, AssertionError, AttributeError) as e:
-            logging.critical(f"id:\"{item_id}\" - \"{self.what}\" algorithm error: {e}", stack_info=True)
+            logging.critical(self.get_log_msg(item_id, f"algorithm error: {e}"), stack_info=True)
             collected_metrics["internal_exception"] += 1
             return

@@ -19,16 +19,6 @@ from ..env import is_debug, is_test, is_cloud, port, get_env
 __all__ = ['AsyncServer']
 
 
-def configure_logging(debug=False):
-    ch = local_logging.StreamHandler()
-    ch.setLevel(logging.DEBUG if debug else logging.INFO)
-    ch.setFormatter(logging.Formatter(style='{', fmt='{levelname:5}{lineno:4}:{filename:30}{message}'))
-
-    local_logging.root.handlers.clear()
-    local_logging.root.addHandler(ch)
-    local_logging.root.setLevel(logging.DEBUG if debug else logging.INFO)
-
-
 def handler(signum, frame):
     print("====================================================\n")
     print("*** STACKTRACE - START ***")
@@ -65,9 +55,12 @@ class AsyncServer(metaclass=abc.ABCMeta):
         pass
 
     def init(self, db=None):
-        configure_logging(self.config['debug'])
         if self.config['cloud']:
+            local_logging.root.handlers.clear()
             self._setup_cloud_logging(self.config['debug'])
+        else:
+            local_logging.root.handlers.clear()
+            self._setup_local_logging(self.config['debug'])
 
     @cached_property
     def loop(self):
@@ -154,6 +147,14 @@ class AsyncServer(metaclass=abc.ABCMeta):
         self.logging_client = cloud_logging.Client()
         self.logging_client.get_default_handler()
         self.logging_client.setup_logging(log_level=logging.DEBUG if debug else logging.INFO)
+
+    def _setup_local_logging(debug=False):
+        ch = local_logging.StreamHandler()
+        ch.setLevel(logging.DEBUG if debug else logging.INFO)
+        ch.setFormatter(logging.Formatter(style='{', fmt='{levelname:5}{lineno:4}:{filename:30}{message}'))
+
+        local_logging.root.addHandler(ch)
+        local_logging.root.setLevel(logging.DEBUG if debug else logging.INFO)
 
     def execute(self):
         with self.loop_executor:
