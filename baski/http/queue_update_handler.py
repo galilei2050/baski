@@ -96,9 +96,9 @@ class QueueUpdateHandler(RequestHandler, ABC):
         return f'{self.what} [id={item_id}]: {message}'
 
     def get_fields(self):
-        fields = self.fields if self.fields else []
-        fields = set(list(fields) + ['id', 'updated'])
-        return list(fields)
+        flds = self.fields if self.fields else []
+        flds = set(list(flds) + ['id', 'updated'])
+        return list(flds)
 
     def query(self) -> firestore.AsyncQuery:
         return self.collection.select(self.get_fields())
@@ -209,7 +209,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
     @cached_property
     def project_id(self):
-        return AppConfig().project_id
+        return self.db.project
 
     def _cgi_arguments(self):
         args = self._all_arguments()
