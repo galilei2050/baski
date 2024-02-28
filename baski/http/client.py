@@ -98,7 +98,7 @@ class HttpClient(object):
             max_attempts=2,
             fail_fast=False,
             **cgi
-    ) -> HttpResult:
+    ) -> typing.Union[typing.ByteString, typing.Dict, None]:
         if self._is_session_open():
             try:
                 self._context_cnt += 1
