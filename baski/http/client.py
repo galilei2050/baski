@@ -125,7 +125,7 @@ class HttpClient(object):
         assert method in aiohttp.hdrs.METH_ALL
 
         async def retry(err):
-            if not max_attempts or max_attempts < 1:
+            if not max_attempts or max_attempts < 2:
                 raise err
             proxy = f'through {self._proxy}' if self._proxy else ''
             logging.warning(f"Another attempt to {self._base_url} due to {err}. {proxy}")

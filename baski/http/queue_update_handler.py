@@ -311,11 +311,11 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
         # Errors that are not recoverable and human help is required.
         except ValidationError as e:
-            logging.critical(self.get_log_msg(item_id, f"validation exception: {e}"))
+            logging.critical(self.get_log_msg(item_id, f"validation exception: {e}"), exc_info=e)
             collected_metrics["invalid_response"] += 1
             return
 
         except (ValueError, TypeError, KeyError, AssertionError, AttributeError) as e:
-            logging.critical(self.get_log_msg(item_id, f"algorithm error: {e}"), stack_info=True)
+            logging.critical(self.get_log_msg(item_id, f"algorithm error: {e}"), exc_info=e)
             collected_metrics["internal_exception"] += 1
             return
