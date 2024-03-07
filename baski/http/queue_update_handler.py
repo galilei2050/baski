@@ -336,3 +336,12 @@ class QueueUpdateHandler(RequestHandler, ABC):
             logging.critical(self.get_log_msg(item_id, f"algorithm error: {e}"), exc_info=e)
             collected_metrics["internal_exception"] += 1
             return
+
+        except Exception as e:
+            logging.critical(
+                msg=self.get_log_msg(
+                    item_id,
+                    f"unexpected error for request {self.request} body {self.request.body}: {e}"),
+                exc_info=e
+            )
+            raise e
