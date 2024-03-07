@@ -41,9 +41,14 @@ def datetime_hook(doc, add_tz=False):
             continue
         if v.isnumeric():
             continue
+        if len(v) < 8:
+            continue
         # Try to parse the string as a date if it is not a number
         try:
-            d = parse(v, fuzzy=False, fuzzy_with_tokens=False)
+            d, tokens = parse(v, fuzzy=False, fuzzy_with_tokens=True)
+            for t in tokens:
+                if t != 'T' and t.isalnum():
+                    raise ValueError
             if add_tz and d.tzinfo is None:
                 d = as_utc(d)
             doc[k] = d
