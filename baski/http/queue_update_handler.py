@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+import sys
 import typing
 
 from abc import ABC, abstractmethod
@@ -22,11 +23,13 @@ from .exceptions import (
     HttpTimeoutError, HttpNotFoundError, HttpUnauthorizedError,
     HttpConnectionError, HttpBadRequestError, HttpServerError
 )
+
 from .request_handler import RequestHandler
+from ..primitives import name
 from ..concurrent import as_async
 from ..defs import START_OF_EPOCH
-from ..config import AppConfig
 from ..primitives import json, datetime
+
 
 __all__ = ['QueueUpdateHandler']
 
@@ -54,7 +57,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
     what = None
     collection_name = None
     topic_id = None
-    metric = None
+    order_by = None
 
     # Optional properties
     fields = None
@@ -97,22 +100,36 @@ class QueueUpdateHandler(RequestHandler, ABC):
 
     def get_fields(self):
         flds = self.fields if self.fields else []
-        flds = set(list(flds) + ['id', 'updated'])
+        flds = set(list(flds) + ['id', 'updated', self.order_by])
         return list(flds)
 
     def query(self) -> firestore.AsyncQuery:
-        return self.collection.select(self.get_fields())
+        return self.collection.order_by(self.order_by).select(self.get_fields())
 
     async def items(self, limit=None, skip=None) -> typing.Iterable[typing.Tuple[str, dict]]:
-        query = self.query()
-        if limit:
-            query = query.limit(limit)
-        if skip:
-            query = query.offset(skip)
+        limit = int(limit) if limit else sys.maxsize
+        skip = int(skip) if skip else 0
+        if skip > 1024:
+            raise HTTPError(HTTPStatus.BAD_REQUEST, "Skip must be in [0, 1024]")
 
+        batch_size = 16384
         result = []
-        async for doc in query.stream():
-            result.append((doc.id, doc.to_dict()))
+        query = self.query().limit(min(limit, batch_size)).offset(skip)
+
+        # Fetch batch_size until limit is reached, otherwise we face the timeout from firestore
+        while limit > 0:
+            added, doc = 0, {}
+            async for doc in query.stream():
+                result.append((doc.id, doc.to_dict()))
+                added += 1
+                limit -= 1
+
+            if added < batch_size:
+                break
+
+            # order by id helps navigate offset, otherwise timeout.
+            query = self.query().limit(min(limit, batch_size)).start_after(doc)
+
         return result
 
     async def item(self, item_id) -> dict:
@@ -132,8 +149,8 @@ class QueueUpdateHandler(RequestHandler, ABC):
         return (updated_dict.get(self.topic_id) or START_OF_EPOCH) > self.update_from(obsolescence)
 
     def prepare(self):
-        is_configured = all([self.topic_id, self.what])
-        assert is_configured, "Define cls.topic_id and what"
+        is_configured = all([self.topic_id, self.what, self.order_by])
+        assert is_configured, f"Define topic_id, what and order_by for the {name.obj_name(self)}"
         super().prepare()
 
     async def get(self):
