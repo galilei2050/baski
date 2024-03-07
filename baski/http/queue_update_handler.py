@@ -296,7 +296,7 @@ class QueueUpdateHandler(RequestHandler, ABC):
                 logging.info(self.get_log_msg(item_id, "is actual"))
                 collected_metrics['actual'] += 1
                 return
-            logging.info(self.get_log_msg(item_id, f' kwargs={kwargs}'))
+            # logging.info(self.get_log_msg(item_id, f' kwargs={kwargs}'))
 
             metrics = await self.update_one(item_id, item, **kwargs)
             if isinstance(metrics, dict):

@@ -19,6 +19,11 @@ class TornadoServer(AsyncServer):
 
     def init(self, *args, **kwargs):
         super().init(*args, **kwargs)
+        if self.config['cloud']:
+            from tornado.log import access_log
+            access_log.handlers.clear()
+            access_log.setLevel(logging.ERROR)
+
         handlers = self.web_handlers()
         handlers.append(['/ping', OkHandler])
         handlers.append(['/', OkHandler])
