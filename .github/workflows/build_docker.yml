@@ -3,8 +3,6 @@ run-name: ${{ github.actor }} is building docker image
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 jobs:
   push_to_github_packages:
     runs-on: ubuntu-latest
