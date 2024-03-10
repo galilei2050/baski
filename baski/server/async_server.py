@@ -113,7 +113,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
             new_config = self.get_all_config_values()
             if new_config != current_config:
                 logging.info('Config file update detected. Stop and close all tasks!')
-                self.stop()
+                self.check_tasks_and_stop()
                 break
             await asyncio.sleep(60)
 
@@ -137,7 +137,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
         running_tasks = [t.get_coro() for t in asyncio.all_tasks(loop) if self.should_wait_task(t)]
         if running_tasks:
             logging.warning(f"Wait for tasks complete: {running_tasks}")
-            loop.call_later(1, self.check_tasks_and_stop)
+            loop.call_later(60, self.check_tasks_and_stop)
             return
         self.loop.stop()
 
