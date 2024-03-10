@@ -6,6 +6,7 @@ from baski.primitives import json
 @pytest.mark.parametrize(
     "date_str",
     [
+        "2024-03-10 21:00:48.962971+00:00",
         "2021-01-01T00:00:00Z",
         "2021-01-01T00:00:00",
         "2021-01-01T00:00:00+00:00",
