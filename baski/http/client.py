@@ -217,6 +217,9 @@ class HttpClient(object):
         if status in [HTTPStatus.NOT_FOUND]:
             raise HttpNotFoundError(status, reason, body)
 
+        if status in [HTTPStatus.TOO_MANY_REQUESTS]:
+            raise HttpTimeoutError(status, reason, body)
+
         if HTTPStatus.BAD_REQUEST <= status < HTTPStatus.INTERNAL_SERVER_ERROR:
             raise HttpBadRequestError(status, reason, body)
 

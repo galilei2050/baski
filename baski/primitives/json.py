@@ -38,8 +38,8 @@ def dumpf(data, file_path):
 def convert_date(o):
     if isinstance(o, datetime):
         if o.tzinfo is None:
-            return str(pytz.UTC.localize(o))
-        return str(pytz.UTC.normalize(o))
+            return pytz.UTC.localize(o).isoformat()
+        return pytz.UTC.normalize(o).isoformat()
 
 
 date_formats = {
@@ -47,11 +47,11 @@ date_formats = {
     len('2021-01-01T00:00:00'): ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S'],
     len('2021-01-01T00:00:00+00:00'): ['%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%d %H:%M:%S%z'],
     len('2021-01-01T00:00:00.000Z'): ['%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%d %H:%M:%S.%fZ'],
-    len('2021-01-01T00:00:00.000'): ['%Y-%m-%dT%H:%M:%S.%f'],
-    len('2021-01-01T00:00:00.000+00:00'): ['%Y-%m-%dT%H:%M:%S.%f%z'],
-    len('2021-01-01T00:00:00.000000Z'): ['%Y-%m-%dT%H:%M:%S.%fZ'],
-    len('2021-01-01T00:00:00.000000'): ['%Y-%m-%dT%H:%M:%S.%f'],
-    len('2021-01-01T00:00:00.000000+00:00'): ['%Y-%m-%dT%H:%M:%S.%f%z'],
+    len('2021-01-01T00:00:00.000'): ['%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%d %H:%M:%S.%f'],
+    len('2021-01-01T00:00:00.000+00:00'): ['%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%d %H:%M:%S.%f%z'],
+    len('2021-01-01T00:00:00.000000Z'): ['%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%d %H:%M:%S.%fZ'],
+    len('2021-01-01T00:00:00.000000'): ['%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%d %H:%M:%S.%f'],
+    len('2021-01-01T00:00:00.000000+00:00'): ['%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%d %H:%M:%S.%f%z'],
     len('2021-01-01'): ['%Y-%m-%d', '%d.%m.%Y', '%d/%m/%Y'],
 }
 
