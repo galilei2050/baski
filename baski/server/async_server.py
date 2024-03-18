@@ -113,7 +113,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
             new_config = self.get_all_config_values()
             if new_config != current_config:
                 logging.info('Config file update detected. Stop and close all tasks!')
-                self.check_tasks_and_stop()
+                self.stop()
                 break
             await asyncio.sleep(60)
 
