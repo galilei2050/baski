@@ -109,13 +109,17 @@ class AsyncServer(metaclass=abc.ABCMeta):
     async def check_update_config(self):
         current_config = self.get_all_config_values()
         while True:
-            self.update_config()
-            new_config = self.get_all_config_values()
-            if new_config != current_config:
-                logging.info('Config file update detected. Stop and close all tasks!')
-                self.stop()
-                break
             await asyncio.sleep(60)
+            try:
+                self.update_config()
+            except Exception as error:
+                logging.warning(f'An error occurred when updating the config - {error}')
+            else:
+                new_config = self.get_all_config_values()
+                if new_config != current_config:
+                    logging.info('Config file update detected. Stop and close all tasks!')
+                    self.stop()
+                    break
 
     @property
     def name(self):
