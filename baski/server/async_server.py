@@ -99,6 +99,28 @@ class AsyncServer(metaclass=abc.ABCMeta):
         logging.info('Config file %s loaded', self.args['config'])
         return cfg
 
+    def update_config(self) -> None:
+        self.config.load_yml(self.args['config'])
+        self.config.load_db(firestore.Client())
+
+    def get_all_config_values(self) -> list:
+        return [cfg for cfg in self.config.values()]
+
+    async def check_update_config(self):
+        current_config = self.get_all_config_values()
+        while True:
+            await asyncio.sleep(60)
+            try:
+                self.update_config()
+            except Exception as error:
+                logging.warning(f'An error occurred when updating the config - {error}')
+            else:
+                new_config = self.get_all_config_values()
+                if new_config != current_config:
+                    logging.info('Config file update detected. Stop and close all tasks!')
+                    self.stop()
+                    break
+
     @property
     def name(self):
         return self.__class__.__name__
@@ -107,7 +129,6 @@ class AsyncServer(metaclass=abc.ABCMeta):
         return self.run()
 
     def stop(self):
-        logging.warning("Got SIGTERM signal. Graceful shutdown start")
         loop = self.loop
         loop.call_later(1, self.check_tasks_and_stop)
 
@@ -119,7 +140,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
         running_tasks = [t.get_coro() for t in asyncio.all_tasks(loop) if self.should_wait_task(t)]
         if running_tasks:
             logging.warning(f"Wait for tasks complete: {running_tasks}")
-            loop.call_later(1, self.check_tasks_and_stop)
+            loop.call_later(2, self.check_tasks_and_stop)
             return
         self.loop.stop()
 
@@ -134,6 +155,7 @@ class AsyncServer(metaclass=abc.ABCMeta):
                 logging.info('Dry run of %s complete', self.name)
                 return 0
 
+            self.loop.create_task(self.check_update_config())
             self.execute()
 
         except KeyboardInterrupt:
