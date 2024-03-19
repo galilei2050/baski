@@ -87,6 +87,7 @@ class TelegramServer(AsyncServer):
         return not t.done()
 
     def stop(self):
+        logging.warning("Got SIGTERM signal. Graceful shutdown start")
         self.dp.stop_polling()
         super().stop()
 

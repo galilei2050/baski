@@ -125,7 +125,6 @@ class AsyncServer(metaclass=abc.ABCMeta):
         return self.run()
 
     def stop(self):
-        logging.warning("Got SIGTERM signal. Graceful shutdown start")
         loop = self.loop
         loop.call_later(1, self.check_tasks_and_stop)
 
