@@ -1,6 +1,8 @@
 name: Build and publish docker
 run-name: ${{ github.actor }} is building docker image
-on: [push]
+on:
+  push:
+    branches: [ main ]
 jobs:
   push_to_github_packages:
     runs-on: ubuntu-latest

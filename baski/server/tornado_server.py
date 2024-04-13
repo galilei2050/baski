@@ -32,3 +32,7 @@ class TornadoServer(AsyncServer):
         self.web_app = WebApplication(handlers=handlers, compress_response=True)
         self.web_app.listen(self.args['port'], backlog=4096, reuse_port=True)
         logging.info('Listen HTTP at %s', self.args['port'])
+
+    def stop(self):
+        self.web_app.wildcard_router.rules.clear()
+        super().stop()
