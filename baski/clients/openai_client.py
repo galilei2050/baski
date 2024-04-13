@@ -1,16 +1,16 @@
-import logging
-import typing
-import aiohttp
-import openai
 import asyncio
 import io
-import tiktoken
 import json
+import logging
+import typing
 from copy import deepcopy
 
+import aiohttp
+import openai
+import tiktoken
 from openai.openai_object import OpenAIObject
-from baski import monitoring, pattern
 
+from baski import env, monitoring, pattern
 
 __all__ = ["OpenAiClient"]
 
@@ -30,11 +30,15 @@ class OpenAiClient(object):
     )
 
     def __init__(
-            self, api_key, system_prompt, user_prompts=None, default_cgi=None, chunk_length=128,
+            self, api_key=str(env.get_env('OPENAI_API_KEY')),
+            system_prompt=None,
+            user_prompts=None,
+            default_cgi=None,
+            chunk_length=128,
             telemetry: monitoring.Telemetry=None
     ):
         openai.api_key = api_key
-        self.system_prompt = system_prompt
+        self.system_prompt = system_prompt or ""
         self.user_prompts = user_prompts or {}
         self.default_cgi = default_cgi or _CGI
         self.chunk_length = chunk_length
