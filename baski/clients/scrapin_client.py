@@ -40,7 +40,7 @@ class ScrapinClient:
 
     async def extract_company_data(self, linkedin_url: str) -> dict:
         data = await self.request("GET", "/v1/enrichment/company", params={"linkedInUrl": linkedin_url})
-        return data.get("company")
+        return data.get("company") or {}
 
     async def extract_person_data(self, linkedin_url: str) -> dict:
         data = await self.request(
@@ -61,4 +61,4 @@ class ScrapinClient:
                 },
             },
         )
-        return data.get("person")
+        return data.get("person") or {}

@@ -1,9 +1,9 @@
-from datetime import datetime as _dt
 from typing import Any, ClassVar
 
 from aiogram import types
 from aiogram.filters import BaseFilter
 
+from ...primitives import datetime
 from ..storage import UsersStorage
 
 __all__ = ["User"]
@@ -32,6 +32,6 @@ class User(BaseFilter):
         if user is None:
             return {"user": None, "users": self.users}
         user.sync_with(tg_user)
-        user.last_in_message = _dt.now()
+        user.last_in_message = datetime.now()
         self.users.set(user)
         return {"user": user, "users": self.users}

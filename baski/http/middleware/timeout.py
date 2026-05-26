@@ -21,7 +21,6 @@ class RequestTimeoutMiddleware(BaseHTTPMiddleware):
             return await asyncio.wait_for(call_next(request), timeout=self.timeout)
         except TimeoutError:
             logger = get_logger(request)
-            logger.warning(
-                f"Request Timeout after {self.timeout}: {request.client.host} -> {request.method} {request.url}"
-            )
+            client_host = request.client.host if request.client else "?"
+            logger.warning(f"Request Timeout after {self.timeout}: {client_host} -> {request.method} {request.url}")
             return Response(status_code=HTTPStatus.GATEWAY_TIMEOUT)

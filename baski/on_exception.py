@@ -22,7 +22,7 @@ def do_nothing_sync(exception: None, *args: typing.Any, **kwargs: typing.Any) ->
 
 
 def _log_handled_exception(
-    exc: Exception,
+    exc: BaseException,
     _logger: logging.Logger,
     name: str,
     args: tuple,
@@ -45,7 +45,7 @@ async def _invoke_handler(
     is_async: bool,
     args: tuple,
     kwargs: dict,
-    exception: Exception,
+    exception: BaseException,
 ) -> typing.Any:
     if is_async:
         return await do(*args, exception=exception, **kwargs)

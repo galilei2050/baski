@@ -4,7 +4,7 @@ from urllib.parse import parse_qsl
 
 from aiogram import types
 from aiogram.filters import BaseFilter
-from google.cloud import firestore, pubsub
+from google.cloud import firestore, pubsub  # type: ignore[attr-defined]
 
 from baski.schema import BigQueryDateTime, Integer, NotNullString, Schema, String, ValidationError
 
@@ -79,17 +79,20 @@ attribution_data_schema = AttributionDataSchema()
 attribution_event_schema = AttributionEventSchema()
 
 
+_DEEPLINK_PARTS = 2  # /start <base64-payload>
+
+
 def _get_attribution_object(message: types.Message) -> dict | None:
     if not message.text or not message.from_user:
         return None
     parts = message.text.split(" ")
-    if len(parts) != 2:
+    if len(parts) != _DEEPLINK_PARTS:
         return None
     try:
         cgi_string = base64.standard_b64decode(parts[1]).decode("utf-8")
         data = attribution_data_schema.load(dict(parse_qsl(cgi_string)))
-        data["timestamp"] = message.date
-        data["user_id"] = message.from_user.id
-        return data
     except (ValidationError, ValueError):
         return None
+    data["timestamp"] = message.date
+    data["user_id"] = message.from_user.id
+    return data

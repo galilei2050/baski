@@ -68,9 +68,8 @@ def any_to_datetime(v: datetime | int | str | None, default: datetime | None = N
     if isinstance(v, datetime):
         return as_local(v)
     if isinstance(v, int):
-        if v > 10**10:  # Check if the timestamp is in milliseconds
-            v = v / 1000  # Convert milliseconds to seconds
-        return datetime.fromtimestamp(v, tz=UTC).astimezone()
+        seconds = v / 1000 if v > 10**10 else float(v)
+        return datetime.fromtimestamp(seconds, tz=UTC).astimezone()
     if isinstance(v, str):
         try:
             d = parse(v)

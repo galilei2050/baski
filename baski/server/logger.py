@@ -115,7 +115,7 @@ class LocalLogger(Logger):
         if self._skip_labels:
             return msg
         # 17 chars aligns with "HH:MM:SS LEVEL   "
-        return msg + "\n" + " " * 17 + json.dumps(labels, indent=None)
+        return msg + "\n" + " " * 17 + json.dumps(labels)
 
     def debug(self, msg: str, labels: dict | None = None) -> None:
         self._logger.debug(self._make_log_data(msg, labels))

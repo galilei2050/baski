@@ -207,7 +207,8 @@ async def google_api_exception_handler(request: Request, exc: GoogleAPICallError
     )
 
     # Map Google API codes to HTTP response status
-    response_status = DOWNSTREAM_STATUS_MAPPING.get(exc.code, exc.code)
+    code = int(exc.code) if exc.code else int(HTTPStatus.INTERNAL_SERVER_ERROR)
+    response_status = int(DOWNSTREAM_STATUS_MAPPING.get(code, code))
 
     return JSONResponse(
         content={"error": {"code": response_status, "message": f"Google API error: {exc.message}"}},

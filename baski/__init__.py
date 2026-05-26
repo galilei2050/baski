@@ -1,12 +1,12 @@
 from .concurrent import as_async, as_task, map_async
 from .env import get_env, is_cloud, is_debug, is_test, port, project_id, token
+from .http import dependencies as dependencies
 from .on_exception import do_nothing, do_nothing_sync, on_exception
 from .primitives import datetime
 from .primitives.dataclass import from_doc
 from .primitives.json import JSONDecodeError, dump, dumpf, dumps, load, loadf, loads
 from .primitives.name import fn_name, obj_name
 from .primitives.unique_id import unique_id
-from .http import dependencies as dependencies
 
 __all__ = [
     "JSONDecodeError",

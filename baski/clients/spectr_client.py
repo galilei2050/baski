@@ -2,7 +2,7 @@ from http import HTTPStatus
 from typing import Any
 
 import httpx
-from google.cloud import storage
+from google.cloud import storage  # type: ignore[attr-defined]
 
 from .. import get_env
 from ..server.logger import Logger
@@ -86,7 +86,7 @@ class SpectrClient:
         linkedin_url: str | None = None,
         linkedin_id: str | None = None,
         crunchbase_url: str | None = None,
-    ) -> list[dict[str, Any]] | None:
+    ) -> dict[str, Any] | None:
         """Enrich companies using the POST /companies endpoint.
 
         https://api.tryspecter.com/api-ref/companies

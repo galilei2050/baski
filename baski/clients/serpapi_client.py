@@ -101,7 +101,7 @@ class SerpApiClient:
         if amount is None:
             amount = float("inf")
 
-        params = {"place_id": place_id}
+        params: dict[str, Any] = {"place_id": place_id}
 
         # Set defaults
         params.setdefault("num", 49)

@@ -1,3 +1,5 @@
+from typing import Any
+
 import pulumi
 import pulumi_gcp as gcp
 
@@ -6,16 +8,18 @@ __all__ = ["DEFAULT_SUBSCRIPTION_KWARGS", "create_subscription_with_push_and_dlq
 is_pulumi = pulumi.runtime.is_dry_run() is not None
 
 
-DEFAULT_SUBSCRIPTION_KWARGS = dict(
-    project=gcp.config.project,
-    message_retention_duration="604800s",  # 7 days
-    retain_acked_messages=True,
-    ack_deadline_seconds=600,  # 10 minutes
-    expiration_policy={"ttl": ""},  # never
-)
+DEFAULT_SUBSCRIPTION_KWARGS: dict[str, Any] = {
+    "project": gcp.config.project,
+    "message_retention_duration": "604800s",  # 7 days
+    "retain_acked_messages": True,
+    "ack_deadline_seconds": 600,  # 10 minutes
+    "expiration_policy": {"ttl": ""},  # never
+}
 
 
-def make_topic(topic_name: str):
+def make_topic(
+    topic_name: str,
+) -> tuple[gcp.pubsub.Topic | None, gcp.pubsub.Subscription | None]:
     if not is_pulumi:
         return None, None
     topic = gcp.pubsub.Topic(
@@ -32,7 +36,10 @@ def make_topic(topic_name: str):
     return topic, debug_subscription
 
 
-def _create_dlq_topic(topic_name: str, subscription_name: str):
+def _create_dlq_topic(
+    topic_name: str,
+    subscription_name: str,
+) -> tuple[gcp.pubsub.Topic, gcp.pubsub.Subscription, str]:
     dlq_topic_name = f"{topic_name}-{subscription_name}-dlq"
     dlq_topic = gcp.pubsub.Topic(
         dlq_topic_name,
@@ -55,7 +62,7 @@ def _create_push_subscription(
     service_account: gcp.serviceaccount.Account,
     dlq_topic_name: str,
     backoff_max_seconds: int | None = None,
-):
+) -> gcp.pubsub.Subscription:
     max_backoff = f"{backoff_max_seconds}s" if backoff_max_seconds is not None else "600s"
     return gcp.pubsub.Subscription(
         f"{topic_name}-{subscription_name}",
@@ -85,7 +92,7 @@ def _create_dlq_alert_policy(
     subscription_name: str,
     dlq_topic_name: str,
     notification_channels: list,
-):
+) -> gcp.monitoring.AlertPolicy:
     return gcp.monitoring.AlertPolicy(
         f"{dlq_topic_name}-alert",
         display_name=f"DLQ Messages: {topic_name}-{subscription_name}",
@@ -132,7 +139,12 @@ def create_subscription_with_push_and_dlq(
     service_account: gcp.serviceaccount.Account,
     notification_channels: list,
     backoff_max_seconds: int | None = None,
-):
+) -> tuple[
+    gcp.pubsub.Topic | None,
+    gcp.pubsub.Subscription | None,
+    gcp.pubsub.Subscription | None,
+    gcp.monitoring.AlertPolicy | None,
+]:
     if not is_pulumi:
         return None, None, None, None
 

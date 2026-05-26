@@ -18,11 +18,11 @@ class BlocklistMiddleware(BaseMiddleware):
 
     async def __call__(
         self,
-        handler: Callable[[types.Message, dict[str, Any]], Awaitable[Any]],
-        event: types.Message,
+        handler: Callable[[types.TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: types.TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        if event.from_user and event.from_user.id in self._blocklist:
+        if isinstance(event, types.Message) and event.from_user and event.from_user.id in self._blocklist:
             await event.answer("You are blocked")
             return None
         return await handler(event, data)

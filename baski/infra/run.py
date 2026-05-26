@@ -73,7 +73,7 @@ def _create_5xx_alert_policy(service_name: str, notification_channels: list) -> 
     )
 
 
-def create_cloud_run_with_monitoring(
+def create_cloud_run_with_monitoring(  # noqa: PLR0913 — Cloud Run wrappers legitimately take many parameters
     service_name: str,
     image: str,
     envs: list,
@@ -90,12 +90,16 @@ def create_cloud_run_with_monitoring(
     envs = [
         gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(name="GOOGLE_CLOUD_PROJECT", value=gcp.config.project),
         gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
-            name="GOOGLE_CLOUD_REGION", value=location or gcp.config.region,
+            name="GOOGLE_CLOUD_REGION",
+            value=location or gcp.config.region,
         ),
         *envs,
     ]
     container_args = gcp.cloudrunv2.ServiceTemplateContainerArgs(
-        image=image, args=args, envs=envs, resources=resources,
+        image=image,
+        args=args,
+        envs=envs,
+        resources=resources,
     )
     service = gcp.cloudrunv2.Service(
         f"{service_name}-cloud-run-service",
@@ -103,7 +107,10 @@ def create_cloud_run_with_monitoring(
         location=location or gcp.config.region,
         ingress=ingress,
         template=gcp.cloudrunv2.ServiceTemplateArgs(
-            scaling={"min_instance_count": min_instances, "max_instance_count": max_instances},
+            scaling=gcp.cloudrunv2.ServiceTemplateScalingArgs(
+                min_instance_count=min_instances,
+                max_instance_count=max_instances,
+            ),
             service_account=service_account_email,
             containers=[container_args],
         ),

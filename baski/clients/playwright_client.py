@@ -3,7 +3,7 @@ from datetime import UTC
 from datetime import datetime as _dt
 from http import HTTPStatus
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 from bs4 import BeautifulSoup
 from httpx import HTTPStatusError
@@ -66,7 +66,7 @@ class PlaywrightClient:
         if self._playwright:
             await self._playwright.stop()
 
-    async def fetch_page_markdown(self, url: str) -> str:
+    async def fetch_page_markdown(self, url: str) -> str:  # noqa: C901
         """Fetch webpage content and convert to markdown with retry logic.
 
         Args:
@@ -112,9 +112,16 @@ class PlaywrightClient:
         ]
 
         for selector in nav_selectors:
-            for element in soup.find_all(attrs={"class": lambda x, s=selector: x and s in " ".join(x).lower()}):
+
+            def class_match(x: Any, s: str = selector) -> bool:
+                return bool(x) and s in " ".join(x).lower()
+
+            def id_match(x: Any, s: str = selector) -> bool:
+                return bool(x) and s in x.lower()
+
+            for element in soup.find_all(attrs={"class": class_match}):
                 element.decompose()
-            for element in soup.find_all(attrs={"id": lambda x, s=selector: x and s in x.lower()}):
+            for element in soup.find_all(attrs={"id": id_match}):
                 element.decompose()
 
         return md(str(soup), heading_style="atx")

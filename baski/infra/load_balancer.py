@@ -14,14 +14,14 @@ def make_cloud_run_backend(
         region=gcp.config.region,
         cloud_run=gcp.compute.RegionNetworkEndpointGroupCloudRunArgs(service=service.name),
     )
-    cdn_policy = {
-        "cache_mode": "CACHE_ALL_STATIC",
-        "cache_key_policy": {
-            "include_host": True,
-            "include_protocol": True,
-            "include_query_string": True,
-        },
-    }
+    cdn_policy = gcp.compute.BackendServiceCdnPolicyArgs(
+        cache_mode="CACHE_ALL_STATIC",
+        cache_key_policy=gcp.compute.BackendServiceCdnPolicyCacheKeyPolicyArgs(
+            include_host=True,
+            include_protocol=True,
+            include_query_string=True,
+        ),
+    )
     backend_service = gcp.compute.BackendService(
         f"compute-backend-service-for-cloud-run-{name}",
         protocol="HTTPS",

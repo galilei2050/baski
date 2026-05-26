@@ -6,7 +6,7 @@ from typing import Any
 
 from aiogram import Bot, types
 from aiogram.exceptions import TelegramAPIError
-from google.cloud import storage
+from google.cloud import storage  # type: ignore[attr-defined]
 
 from ...concurrent import as_async
 from ...pattern import retry
@@ -24,9 +24,11 @@ I_DO_NOT_KNOW = (
 
 
 class UnprocessedMiddleware:
-    """A catch-all message handler — register it as a handler on the LAST router so it only fires
-    when no other handler matched. Replies with apology text, optionally logs telemetry, and
-    uploads any attached media to GCS for inspection.
+    """Catch-all message handler.
+
+    Register it as a handler on the LAST router so it only fires when no other handler matched.
+    Replies with apology text, optionally logs telemetry, and uploads any attached media to GCS
+    for inspection.
 
     Usage:
         unprocessed = UnprocessedMiddleware(bot=bot, storage_client=gcs, storage_bucket="my-bucket")

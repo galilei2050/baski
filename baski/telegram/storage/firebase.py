@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from functools import cached_property
 from typing import Any
 
@@ -42,17 +43,17 @@ class FirebaseStorage(BaseStorage):
         doc = await doc_ref.get()
         return doc.get("state") if doc.exists else None
 
-    async def set_data(self, key: StorageKey, data: dict[str, Any]) -> None:
+    async def set_data(self, key: StorageKey, data: Mapping[str, Any]) -> None:
         doc_ref = self._data.document(_doc_id(key))
         if not data:
             await doc_ref.delete()
         else:
-            await doc_ref.set(data)
+            await doc_ref.set(dict(data))
 
     async def get_data(self, key: StorageKey) -> dict[str, Any]:
         doc_ref = self._data.document(_doc_id(key))
         doc = await doc_ref.get()
-        return doc.to_dict() if doc.exists else {}
+        return doc.to_dict() or {} if doc.exists else {}
 
     async def close(self) -> None:
         pass

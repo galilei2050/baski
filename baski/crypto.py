@@ -7,7 +7,7 @@ __all__ = ["decrypt_token", "encrypt_token"]
 
 def _get_cipher() -> Fernet:
     key = get_env("OAUTH_ENCRYPTION_KEY")
-    return Fernet(key.encode())
+    return Fernet(str(key).encode())
 
 
 def encrypt_token(token: str) -> str:

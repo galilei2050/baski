@@ -1,10 +1,10 @@
-from marshmallow import Schema as BaseSchema, EXCLUDE
+from marshmallow import EXCLUDE
+from marshmallow import Schema as BaseSchema
 
-__all__ = ['Schema']
+__all__ = ["Schema"]
 
 
 class Schema(BaseSchema):
-
     class Meta:
         ordered = True
         unknown = EXCLUDE

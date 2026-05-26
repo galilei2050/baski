@@ -13,7 +13,7 @@ __all__ = ["aiogram_retry", "aiogram_wait_time_function"]
 def aiogram_wait_time_function(e: Exception, i: int, min_wait_ms: int, max_wait_ms: int) -> int:
     if isinstance(e, TelegramRetryAfter):
         return e.retry_after * 1000 + 250
-    return i * random.randrange(min_wait_ms, max_wait_ms)
+    return i * random.randrange(min_wait_ms, max_wait_ms)  # noqa: S311
 
 
 async def aiogram_retry(

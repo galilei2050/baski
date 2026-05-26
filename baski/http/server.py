@@ -5,7 +5,6 @@ import types
 from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import Annotated, Any
-from typing import AnyStr as Str
 
 import httpx
 from fastapi import Depends, FastAPI, Request
@@ -15,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.api_core.exceptions import GoogleAPICallError
 from google.auth import default as google_auth_default
-from google.cloud import firestore, pubsub, storage
+from google.cloud import firestore, pubsub, storage  # type: ignore[attr-defined]
 from google.genai.errors import APIError as GenAIAPIError
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HypercornConfig
@@ -25,8 +24,6 @@ from pymongo.asynchronous import database
 from pymongo.errors import PyMongoError
 
 from ..env import get_env
-from .middleware import AccessLogMiddleware, RequestTimeoutMiddleware
-from .mongo_logging import MongoQueryLogger
 from ..server.async_server import AsyncServer
 from .dependencies import get_logger
 from .exception_handlers import (
@@ -38,6 +35,8 @@ from .exception_handlers import (
     runtime_exception_handler,
     timeout_exception_handler,
 )
+from .middleware import AccessLogMiddleware, RequestTimeoutMiddleware
+from .mongo_logging import MongoQueryLogger
 
 __all__ = ["FastAPIServer"]
 
@@ -98,7 +97,7 @@ class FastAPIServer(AsyncServer):
     async def check_health(self, request: Request) -> None:
         """Override in subclass to add application-specific health checks."""
 
-    async def __aenter__(self) -> dict[Str, Any]:
+    async def __aenter__(self) -> dict[str, Any]:
         await self.http_client.__aenter__()
         return {
             "http_client": self.http_client,
@@ -123,8 +122,11 @@ class FastAPIServer(AsyncServer):
         self.publisher_client.transport.close()
 
     def setup_exception_handlers(self, app: FastAPI) -> None:
-        app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
-        app.add_exception_handler(ValidationError, request_validation_exception_handler)
+        # Starlette's add_exception_handler stub demands a (Request, Exception) signature, but
+        # the handlers below narrow to specific exception subclasses — Starlette accepts that
+        # at runtime. Suppress the stub's overconservative type via type: ignore on each call.
+        app.add_exception_handler(RequestValidationError, request_validation_exception_handler)  # type: ignore[arg-type]
+        app.add_exception_handler(ValidationError, request_validation_exception_handler)  # type: ignore[arg-type]
 
         for exception_class in [
             ArithmeticError,
@@ -143,20 +145,20 @@ class FastAPIServer(AsyncServer):
             app.add_exception_handler(exception_class, runtime_exception_handler)
 
         for exception_class in [asyncio.TimeoutError]:
-            app.add_exception_handler(exception_class, timeout_exception_handler)
+            app.add_exception_handler(exception_class, timeout_exception_handler)  # type: ignore[arg-type]
 
         for exception_class in [httpx.HTTPStatusError]:
-            app.add_exception_handler(exception_class, http_exception_handler)
+            app.add_exception_handler(exception_class, http_exception_handler)  # type: ignore[arg-type]
 
         for exception_class in [httpx.ReadError, httpx.ConnectError]:
-            app.add_exception_handler(exception_class, http_connection_exception_handler)
+            app.add_exception_handler(exception_class, http_connection_exception_handler)  # type: ignore[arg-type]
 
-        app.add_exception_handler(GoogleAPICallError, google_api_exception_handler)
-        app.add_exception_handler(GenAIAPIError, genai_api_exception_handler)
+        app.add_exception_handler(GoogleAPICallError, google_api_exception_handler)  # type: ignore[arg-type]
+        app.add_exception_handler(GenAIAPIError, genai_api_exception_handler)  # type: ignore[arg-type]
 
     def setup_middleware(self, app: FastAPI) -> None:
-        app.add_middleware(RequestTimeoutMiddleware, timeout=1800)
-        app.add_middleware(AccessLogMiddleware)
+        app.add_middleware(RequestTimeoutMiddleware, timeout=1800)  # type: ignore[arg-type]
+        app.add_middleware(AccessLogMiddleware)  # type: ignore[arg-type]
         app.add_middleware(trustedhost.TrustedHostMiddleware, allowed_hosts=["*"])
         app.add_middleware(gzip.GZipMiddleware)
         app.add_middleware(
@@ -213,4 +215,5 @@ class FastAPIServer(AsyncServer):
             config_opts["certfile"] = "cert.pem"
             config_opts["keyfile"] = "key.pem"
         config = HypercornConfig.from_mapping(**config_opts)
-        return asyncio.run(serve(self.app, config))
+        asyncio.run(serve(self.app, config))  # type: ignore[arg-type]
+        return 0

@@ -29,7 +29,7 @@ class Config(UserDict):
     def __missing__(self, key: str) -> "Config":
         return Config(path=f"{self._path}.{key}" if self._path else key)
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: Any) -> Any:
         if not isinstance(key, str):
             return super().__getitem__(key)
         if "." not in key:
@@ -43,7 +43,7 @@ class Config(UserDict):
     def __getattr__(self, item: str) -> Any:
         return self.__getitem__(item)
 
-    def __setitem__(self, key: str, new: Any) -> None:
+    def __setitem__(self, key: Any, new: Any) -> None:
         if not isinstance(key, str):
             super().__setitem__(key, new)
             return

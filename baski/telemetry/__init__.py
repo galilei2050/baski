@@ -1,1 +1,2 @@
-from .telemetry import Telemetry
+from .event_schema import EventSchema as EventSchema
+from .telemetry import Telemetry as Telemetry

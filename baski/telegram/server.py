@@ -1,8 +1,7 @@
 import abc
 import argparse
 import asyncio
-import logging
-from collections.abc import Iterable
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import Any
@@ -25,7 +24,7 @@ __all__ = ["TelegramServer"]
 
 
 class TelegramServer(AsyncServer):
-    """aiogram v3 server. Two execution modes:
+    """aiogram v3 server with two execution modes.
 
     - polling (default, local) — `dp.start_polling(bot)`.
     - webhook (`--cloud`) — FastAPI + hypercorn, same stack as `FastAPIServer`. POSTs to the
@@ -67,11 +66,6 @@ class TelegramServer(AsyncServer):
         parser.add_argument("--webhook-path", default=str(get_env("WEBHOOK_URL", "")), help="Public webhook URL")
         parser.add_argument("--token", default=str(get_env("TELEGRAM_TOKEN", "")), help="Telegram bot token")
 
-    def stop(self) -> None:
-        logging.warning("Got shutdown signal, stopping dispatcher")
-        asyncio.get_event_loop().create_task(self.dp.stop_polling())
-        super().stop()
-
     def execute(self) -> int:
         if self.args["cloud"]:
             return self._run_webhook()
@@ -90,7 +84,7 @@ class TelegramServer(AsyncServer):
         path = urlparse(webhook_url).path or "/webhook"
 
         @asynccontextmanager
-        async def lifespan(_: FastAPI):
+        async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             info = await self.bot.get_webhook_info()
             if info.url != webhook_url:
                 await retry(self.bot.set_webhook, exceptions=(TelegramAPIError,), url=webhook_url)
@@ -114,4 +108,5 @@ class TelegramServer(AsyncServer):
 
         bind = f"0.0.0.0:{self.args['port']}"
         config = HypercornConfig.from_mapping(bind=[bind], accesslog=None)
-        return asyncio.run(serve(app, config))
+        asyncio.run(serve(app, config))  # type: ignore[arg-type]
+        return 0

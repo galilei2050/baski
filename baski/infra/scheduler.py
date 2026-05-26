@@ -14,19 +14,21 @@ def make_scheduled_job(
     service_account: gcp.serviceaccount.Account,
     time_zone: str = "America/Los_Angeles",
     body: dict | None = None,
-):
-    http_target = {
-        "httpMethod": "POST",
-        "uri": uri,
-        "headers": {"Content-Type": "application/json"},
-        "oidc_token": {
-            "service_account_email": service_account.email,
-            "audience": uri,
-        },
-    }
+) -> gcp.cloudscheduler.Job:
+    http_body: str | None = None
     if isinstance(body, dict):
-        json_string = json.dumps(body).strip()
-        http_target["body"] = base64.b64encode(json_string.encode("utf-8")).decode("utf-8")
+        http_body = base64.b64encode(json.dumps(body).strip().encode("utf-8")).decode("utf-8")
+
+    http_target = gcp.cloudscheduler.JobHttpTargetArgs(
+        http_method="POST",
+        uri=uri,
+        headers={"Content-Type": "application/json"},
+        oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
+            service_account_email=service_account.email,
+            audience=uri,
+        ),
+        body=http_body,
+    )
 
     return gcp.cloudscheduler.Job(
         f"cloud-scheduler-job-{name}",
