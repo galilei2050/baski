@@ -4,7 +4,7 @@ from aiogram import types
 from aiogram.filters import BaseFilter
 
 from ...primitives import datetime
-from ..storage import UsersStorage
+from ..storage import TelegramUser, UsersStorage
 
 __all__ = ["User"]
 
@@ -28,9 +28,7 @@ class User(BaseFilter):
         tg_user = event.from_user
         if tg_user is None:
             return {"user": None, "users": self.users}
-        user = await self.users.get(tg_user.id)
-        if user is None:
-            return {"user": None, "users": self.users}
+        user = await self.users.get(tg_user.id) or TelegramUser(id=str(tg_user.id))
         user.sync_with(tg_user)
         user.last_in_message = datetime.now()
         self.users.set(user)

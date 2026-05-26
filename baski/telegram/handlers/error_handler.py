@@ -23,14 +23,14 @@ class SaySorryHandler:
     def __init__(self, logger: Logger | None = None) -> None:
         self._logger: Logger = logger or LocalLogger()
 
-    async def __call__(self, event: types.ErrorEvent, **kwargs: Any) -> Any:  # noqa: ARG002 — aiogram errors observer passes extra context kwargs we don't use here
+    async def __call__(self, event: types.ErrorEvent, **_: Any) -> Any:
         self._logger.warning(f"{event.exception}")
         message = _get_message_from_update(event.update)
         if message:
             return await message.reply(**self.get_text_from_exception(event.exception))
         return None
 
-    def get_text_from_exception(self, exception: BaseException) -> dict:  # noqa: ARG002 — subclass override hook; baseline returns the same dict regardless of exception
+    def get_text_from_exception(self, _exception: BaseException) -> dict:
         return I_AM_SORRY
 
 
@@ -69,18 +69,19 @@ class LogErrorHandler:
             self._logger.info(f"From {user_id} ignore: {e}")
         except self.warning_exceptions as e:
             self._logger.warning(f"From {user_id}: {e}")
-        except Exception as e:
-            self._logger.error(f"From {user_id} error: {e}", exc_info=e)  # noqa: TRY400 — baski Logger has .error(exc_info=), not .exception()
+        except Exception:
+            self._logger.exception(f"From {user_id} error")
             raise
         return None
 
-    def get_text_from_exception(self, exception: BaseException) -> dict:  # noqa: ARG002 — subclass override hook
+    def get_text_from_exception(self, _exception: BaseException) -> dict:
         return I_AM_SORRY
 
 
 def _get_message_from_update(update: types.Update) -> types.Message | None:
-    if update.message:
-        return update.message
+    msg = update.message or update.edited_message or update.channel_post or update.edited_channel_post
+    if msg:
+        return msg
     if update.callback_query and isinstance(update.callback_query.message, types.Message):
         return update.callback_query.message
     return None

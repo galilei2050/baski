@@ -2,9 +2,10 @@ import base64
 from typing import Any, ClassVar
 from urllib.parse import parse_qsl
 
+import google.cloud.firestore as firestore
+import google.cloud.pubsub as pubsub
 from aiogram import types
 from aiogram.filters import BaseFilter
-from google.cloud import firestore, pubsub  # type: ignore[attr-defined]
 
 from baski.schema import BigQueryDateTime, Integer, NotNullString, Schema, String, ValidationError
 

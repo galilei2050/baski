@@ -6,6 +6,9 @@ from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import Annotated, Any
 
+import google.cloud.firestore as firestore
+import google.cloud.pubsub as pubsub
+import google.cloud.storage as storage
 import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -14,7 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.api_core.exceptions import GoogleAPICallError
 from google.auth import default as google_auth_default
-from google.cloud import firestore, pubsub, storage  # type: ignore[attr-defined]
 from google.genai.errors import APIError as GenAIAPIError
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HypercornConfig
@@ -49,7 +51,7 @@ class FastAPIServer(AsyncServer):
     def app(self) -> FastAPI:
 
         @asynccontextmanager
-        async def lifespan(app: FastAPI) -> Any:  # noqa: ARG001 — `app` is required by FastAPI's lifespan contract
+        async def lifespan(_app: FastAPI) -> Any:
             async with self as resources:
                 scheme = "http" if self.args["cloud"] else "https"
                 logger.warning("Server ready: %s://0.0.0.0:%s", scheme, self.args["port"])

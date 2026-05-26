@@ -66,7 +66,7 @@ class PlaywrightClient:
         if self._playwright:
             await self._playwright.stop()
 
-    async def fetch_page_markdown(self, url: str) -> str:  # noqa: C901
+    async def fetch_page_markdown(self, url: str) -> str:
         """Fetch webpage content and convert to markdown with retry logic.
 
         Args:
@@ -80,7 +80,6 @@ class PlaywrightClient:
             raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
 
         page = await self._context.new_page()
-
         if self.logger:
             self.logger.info("Fetching page", labels={"url": url})
 
@@ -93,38 +92,7 @@ class PlaywrightClient:
         finally:
             await page.close()
 
-        soup = BeautifulSoup(html_content, "html.parser")
-
-        for tag in soup(["script", "style", "meta", "link", "noscript", "iframe", "nav", "header", "footer", "aside"]):
-            tag.decompose()
-
-        nav_selectors = [
-            "nav",
-            "navigation",
-            "navbar",
-            "menu",
-            "sidebar",
-            "breadcrumb",
-            "site-header",
-            "site-footer",
-            "top-bar",
-            "header-nav",
-        ]
-
-        for selector in nav_selectors:
-
-            def class_match(x: Any, s: str = selector) -> bool:
-                return bool(x) and s in " ".join(x).lower()
-
-            def id_match(x: Any, s: str = selector) -> bool:
-                return bool(x) and s in x.lower()
-
-            for element in soup.find_all(attrs={"class": class_match}):
-                element.decompose()
-            for element in soup.find_all(attrs={"id": id_match}):
-                element.decompose()
-
-        return md(str(soup), heading_style="atx")
+        return _html_to_markdown(html_content)
 
     async def _safe_goto(self, page: Page, url: str) -> None:
         """Navigate to URL with retry logic for network errors and timeouts."""
@@ -203,3 +171,39 @@ class PlaywrightClient:
             )
         except Exception as e:  # noqa: BLE001 — debug dump must not crash the main error handler
             self.logger.info("Failed to dump error context", labels={"error": str(e)})
+
+
+_NAV_SELECTORS = (
+    "nav",
+    "navigation",
+    "navbar",
+    "menu",
+    "sidebar",
+    "breadcrumb",
+    "site-header",
+    "site-footer",
+    "top-bar",
+    "header-nav",
+)
+_STRIP_TAGS = ("script", "style", "meta", "link", "noscript", "iframe", "nav", "header", "footer", "aside")
+
+
+def _html_to_markdown(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(_STRIP_TAGS):
+        tag.decompose()
+    for selector in _NAV_SELECTORS:
+        _strip_by_attr(soup, "class", selector)
+        _strip_by_attr(soup, "id", selector)
+    return md(str(soup), heading_style="atx")
+
+
+def _strip_by_attr(soup: BeautifulSoup, attr: str, needle: str) -> None:
+    def matches(value: Any) -> bool:
+        if not value:
+            return False
+        text = " ".join(value) if isinstance(value, list) else value
+        return needle in text.lower()
+
+    for element in soup.find_all(attrs={attr: matches}):
+        element.decompose()

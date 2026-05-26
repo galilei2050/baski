@@ -45,10 +45,7 @@ class FirebaseStorage(BaseStorage):
 
     async def set_data(self, key: StorageKey, data: Mapping[str, Any]) -> None:
         doc_ref = self._data.document(_doc_id(key))
-        if not data:
-            await doc_ref.delete()
-        else:
-            await doc_ref.set(dict(data))
+        await doc_ref.set(dict(data))
 
     async def get_data(self, key: StorageKey) -> dict[str, Any]:
         doc_ref = self._data.document(_doc_id(key))

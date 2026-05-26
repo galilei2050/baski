@@ -61,7 +61,7 @@ class UsersStorage:
         user_ref = self._db.document(str(user_id))
         user_doc = await user_ref.get()
         if not user_doc.exists:
-            return self._klass(id=str(user_id))
+            return None
         data = {k: v for k, v in (user_doc.to_dict() or {}).items() if k in self._fields}
         return self._klass(**data)
 

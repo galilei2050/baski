@@ -1,4 +1,5 @@
 import logging as python_logging
+import sys
 import traceback
 from typing import ClassVar
 
@@ -58,6 +59,11 @@ class Logger:
 
     def error(self, msg: str, labels: dict | None = None, exc_info: BaseException | None = None) -> None:
         pass
+
+    def exception(self, msg: str, labels: dict | None = None) -> None:
+        """Log at ERROR level with the currently-handled exception. Call only from within an `except` block."""
+        exc = sys.exc_info()[1]
+        self.error(msg, labels=labels, exc_info=exc)
 
 
 class CloudLogger(Logger):

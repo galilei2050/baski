@@ -25,11 +25,9 @@ class TypedHandler:
         **kwargs: Any,
     ) -> Any:
         if isinstance(event, types.Message):
-            result = await self.on_message(event, state=state, **kwargs)
-        elif isinstance(event, types.CallbackQuery):
-            result = await self.on_callback(event, state=state, **kwargs)
-        elif isinstance(event, types.PreCheckoutQuery):
-            result = await self.on_pre_checkout(event, state=state, **kwargs)
-        else:
-            raise TypeError(f"Unsupported event type: {type(event)}")
-        return result or True
+            return await self.on_message(event, state=state, **kwargs)
+        if isinstance(event, types.CallbackQuery):
+            return await self.on_callback(event, state=state, **kwargs)
+        if isinstance(event, types.PreCheckoutQuery):
+            return await self.on_pre_checkout(event, state=state, **kwargs)
+        raise TypeError(f"Unsupported event type: {type(event)}")

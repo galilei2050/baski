@@ -4,9 +4,9 @@ import tempfile
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import google.cloud.storage as storage
 from aiogram import Bot, types
 from aiogram.exceptions import TelegramAPIError
-from google.cloud import storage  # type: ignore[attr-defined]
 
 from ...concurrent import as_async
 from ...pattern import retry

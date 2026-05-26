@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime as _dt
 from typing import Any
 
-from google.cloud import pubsub  # type: ignore[attr-defined]
+import google.cloud.pubsub as pubsub
+from google.api_core import exceptions as gapi_exceptions
 
 from ..primitives import datetime
 from ..server.logger import LocalLogger, Logger
@@ -46,7 +47,7 @@ class Telemetry:
             queue_item = self._schema.dumps(data)
             if self.publish:
                 self.publisher.publish(self.topic_path, data=queue_item.encode("utf-8"))
-        except Exception as e:  # noqa: BLE001 — telemetry must never break the caller; log and swallow
+        except (TypeError, ValueError, gapi_exceptions.GoogleAPICallError) as e:
             self._logger.warning(f"Failed to add telemetry event: {e}")
 
 

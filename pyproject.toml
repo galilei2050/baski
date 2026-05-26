@@ -85,6 +85,7 @@ ignore = [
     "EM101", "EM102",  # exception strings — not enforced
     "ANN401",  # **kwargs: Any — required for httpx/fastapi forwarding
     "TID252",  # relative imports — project prefers `from ..pkg import x` for intra-package
+    "PLR0402", # `import X.Y as Y` — required for google.cloud namespace packages (from-import trips mypy attr-defined)
 ]
 
 [tool.ruff.lint.pylint]

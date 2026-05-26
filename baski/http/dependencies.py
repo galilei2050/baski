@@ -1,6 +1,9 @@
+import google.cloud.firestore as firestore
+import google.cloud.pubsub as pubsub
+import google.cloud.storage as storage
+import google.cloud.tasks_v2 as tasks_v2
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from google.cloud import firestore, pubsub, storage, tasks_v2  # type: ignore[attr-defined]
 from httpx import AsyncClient
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.asynchronous.mongo_client import AsyncMongoClient

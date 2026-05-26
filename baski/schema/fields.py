@@ -11,7 +11,7 @@ class BigQueryDateTime(fields.DateTime):
         value = value if isinstance(value, dt.datetime) else super()._deserialize(value, attr, data, **kwargs)
         return to_utc(value)
 
-    def _serialize(self, value: dt.datetime | None, attr: str | None, obj: Any, **kwargs: Any) -> Any:  # noqa: ARG002 — marshmallow override; we don't need attr/obj/kwargs
+    def _serialize(self, value: dt.datetime | None, attr: str | None, obj: Any, **kwargs: Any) -> Any:  # noqa: ARG002 — marshmallow override signature
         if value is None:
             return None
         return to_utc(value).replace(tzinfo=None).isoformat()

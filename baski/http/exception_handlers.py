@@ -58,7 +58,7 @@ async def request_body(request: Request) -> dict | str | None:
     return None
 
 
-def timeout_exception_handler(request: Request, exc: asyncio.TimeoutError) -> JSONResponse:  # noqa: ARG001 — `exc` is required by FastAPI's exception-handler signature
+def timeout_exception_handler(request: Request, _exc: asyncio.TimeoutError) -> JSONResponse:
     logger = get_logger(request)
     logger.warning("Request timeout")
     return JSONResponse(

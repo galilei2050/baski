@@ -1,8 +1,8 @@
 from http import HTTPStatus
 from typing import Any
 
+import google.cloud.storage as storage
 import httpx
-from google.cloud import storage  # type: ignore[attr-defined]
 
 from .. import get_env
 from ..server.logger import Logger
