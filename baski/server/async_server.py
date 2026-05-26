@@ -1,187 +1,168 @@
-import abc
+"""AsyncServer base class: arg parsing, config, structured logging, lifecycle hooks."""
+
 import argparse
 import asyncio
 import logging as local_logging
 import logging.config
-import os
 import signal
+import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property
 from sys import _current_frames
+from types import FrameType
+from typing import Any
 
 from google.cloud import firestore
 from google.cloud import logging as cloud_logging
 
-from ..config import AppConfig
-from ..env import is_debug, is_test, is_cloud, port, get_env
+from ..env import get_env, is_cloud, is_debug, is_test, port, project_id
+from .config import AppConfig
+from .logger import CloudLogger, LocalLogger, Logger
 
-__all__ = ['AsyncServer']
+__all__ = ["AsyncServer"]
 
 
-def handler(signum, frame):
-    print("====================================================\n")
-    print("*** STACKTRACE - START ***")
-    code = []
-    for threadId, stack in _current_frames().items():
-        code.append("\n# ThreadID: %s" % threadId)
+logger = local_logging.getLogger(__name__)
+
+
+def handler(_signum: int, _frame: FrameType | None) -> None:
+    # Write directly to stderr — logging handlers may not have flushed when a signal fires.
+    out = ["====================================================\n", "*** STACKTRACE - START ***\n"]
+    for thread_id, stack in _current_frames().items():
+        out.append(f"\n# ThreadID: {thread_id}\n")
         for filename, lineno, name, line in traceback.extract_stack(stack):
-            code.append(f'File: "{filename}:{lineno}", in {name}')
+            out.append(f'File: "{filename}:{lineno}", in {name}\n')
             if line:
-                code.append("  %s" % (line.strip()))
-
-    for line in code:
-        print(line)
-    print("\n*** STACKTRACE - END ***")
-    print("====================================================\n")
-    raise KeyboardInterrupt()
+                out.append(f"  {line.strip()}\n")
+    out.append("\n*** STACKTRACE - END ***\n")
+    out.append("====================================================\n")
+    sys.stderr.write("".join(out))
+    raise KeyboardInterrupt
 
 
-signal.signal(signal.SIGINT, handler)
+class AsyncServer:
+    """Base for long-running processes: parses args, loads config, wires logging."""
 
+    def __init__(self) -> None:
+        """Register SIGINT stacktrace handler, eagerly init the logging client."""
+        signal.signal(signal.SIGINT, handler)
+        _ = self.logging_client
+        logger.info("Init %s", self.name)
 
-class AsyncServer(metaclass=abc.ABCMeta):
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Override in a subclass to register additional CLI arguments."""
 
-    def __init__(self):
-        logging.info('Init %s', self.name)
-        self.logging_client = None
-
-    def add_arguments(self, parser: argparse.ArgumentParser):
-        '''
-        Добавить аргументы для парсера cmd аргументов. Результат в методе handle можно прочитать из self.args
-        :param parser:
-        :return:
-        '''
-        pass
-
-    def init(self, db=None):
-        if self.config['cloud']:
+    @cached_property
+    def logging_client(self) -> cloud_logging.Client | None:
+        """Return a Cloud Logging client in cloud mode, else configure stdlib logging."""
+        if self.config["cloud"]:
             local_logging.root.handlers.clear()
-            self._setup_cloud_logging(self.config['debug'])
-        else:
-            local_logging.root.handlers.clear()
-            self._setup_local_logging(self.config['debug'])
+            logging_client = cloud_logging.Client()
+            logging_client.get_default_handler()
+            logging_client.setup_logging(log_level=local_logging.DEBUG if self.config["debug"] else local_logging.INFO)
+            local_logging.getLogger("httpx").setLevel(local_logging.WARNING)
+            return logging_client
+
+        local_logging.root.handlers.clear()
+        ch = local_logging.StreamHandler()
+        ch.setLevel(local_logging.DEBUG if self.config["debug"] else local_logging.INFO)
+        ch.setFormatter(local_logging.Formatter(style="{", fmt="{asctime} {levelname:7} {message}", datefmt="%H:%M:%S"))
+
+        local_logging.root.addHandler(ch)
+        local_logging.root.setLevel(local_logging.DEBUG if self.config["debug"] else local_logging.INFO)
+        local_logging.getLogger("httpx").setLevel(local_logging.WARNING)
+        return None
 
     @cached_property
-    def loop(self):
-        loop = asyncio.get_event_loop()
-        loop.set_default_executor(self.loop_executor)
-        loop.add_signal_handler(signal.SIGTERM, self.stop)
-        return loop
+    def logger(self) -> Logger:
+        """Return a process-scoped structured logger (Cloud or local)."""
+        # Process-scoped structured logger for background components that have
+        # no Request (e.g. the Mongo CommandListener). Request-scoped logging
+        # still goes through dependencies.get_logger(request).
+        if self.logging_client is not None:
+            return CloudLogger(logger_client=self.logging_client, project_id=self.config["project_id"])
+        return LocalLogger()
 
     @cached_property
-    def loop_executor(self):
-        return ThreadPoolExecutor(max_workers=self.config.concurrency or os.cpu_count())
+    def loop_executor(self) -> ThreadPoolExecutor:
+        """Return the shared thread pool used by ``loop.run_in_executor``."""
+        # Default to 64 threads for I/O-bound operations (GCS uploads, etc.)
+        return ThreadPoolExecutor(max_workers=self.config.concurrency or 64)
 
     @cached_property
-    def db(self):
-        return firestore.AsyncClient()
-
-    @cached_property
-    def args(self):
+    def args(self) -> dict[str, Any]:  # noqa: ANON002 — argparse Namespace flattened to dict; keys vary per subclass
+        """Parse CLI args (plus any subclass additions) and return as a plain dict."""
         parser = argparse.ArgumentParser(prog=self.name)
-        parser.add_argument('-d', '--debug', help='Run in debug mode', default=bool(is_debug()), action='store_true')
-        parser.add_argument('-c', '--config', help="Path to config file", default='config.yml')
-        parser.add_argument('-p', '--port', help="Port to listen", default=int(port()))
-        parser.add_argument('--cloud', help="Run in cloud mode", default=bool(is_cloud()), action='store_true')
-        parser.add_argument('--dry-run', help='Run in dry-run mode', default=bool(is_test()), action='store_true')
-        parser.add_argument('--project-id', help='Google Cloud project ID', default=str(get_env('GOOGLE_CLOUD_PROJECT', '')))
+        parser.add_argument("-d", "--debug", help="Run in debug mode", default=bool(is_debug()), action="store_true")
+        parser.add_argument("-c", "--config", help="Path to config file", default="config.yml")
+        parser.add_argument("-p", "--port", help="Port to listen", default=int(port()), type=int)
+        parser.add_argument("--cloud", help="Run in cloud mode", default=bool(is_cloud()), action="store_true")
+        parser.add_argument("--dry-run", help="Run in dry-run mode", default=bool(is_test()), action="store_true")
+        parser.add_argument("--project-id", help="Google Cloud project ID", default=str(str(project_id())))
+        parser.add_argument(
+            "--region", help="Google Cloud region", default=str(get_env("GOOGLE_CLOUD_REGION", "us-central1"))
+        )
         self.add_arguments(parser)
-        return dict(vars(parser.parse_args()))
+        args, _ = parser.parse_known_args()
+        return dict(vars(args))
 
     @cached_property
-    def config(self):
+    def config(self) -> AppConfig:
+        """Build the singleton AppConfig from YAML and CLI overrides."""
         cfg = AppConfig()
-        cfg.load_yml(self.args['config'])
-        cfg.load_db(firestore.Client())
-        for a in ['debug', 'cloud']:
+        cfg.load_yml(self.args["config"])
+        for a in ["debug", "cloud", "project_id", "region"]:
             cfg[a] = self.args[a]
-        logging.info('Config file %s loaded', self.args['config'])
         return cfg
 
-    def update_config(self) -> None:
-        self.config.load_yml(self.args['config'])
-        self.config.load_db(firestore.Client())
+    async def check_config_periodically(self, interval_seconds: float = 300) -> None:
+        """Background task: poll Firestore for config updates, SIGTERM on change.
 
-    def get_all_config_values(self) -> list:
-        return [cfg for cfg in self.config.values()]
-
-    async def check_update_config(self):
-        current_config = self.get_all_config_values()
+        Must be scheduled on the running loop (e.g. via asyncio.create_task in an async
+        lifespan), so the running loop actually executes it.
+        """
+        client = firestore.Client()
         while True:
-            await asyncio.sleep(60)
+            await asyncio.sleep(interval_seconds)
             try:
-                self.update_config()
-            except Exception as error:
-                logging.warning(f'An error occurred when updating the config - {error}')
-            else:
-                new_config = self.get_all_config_values()
-                if new_config != current_config:
-                    logging.info('Config file update detected. Stop and close all tasks!')
-                    self.stop()
-                    break
+                if self.config.load_db(client):
+                    logger.critical("Config update detected. Stop")
+                    signal.raise_signal(signal.SIGTERM)
+                    return
+                logger.debug("Config is the same.")
+            except Exception as error:  # noqa: BLE001 — periodic config refresh must never tear down the server; warn and keep running
+                logger.warning("An error occurred when updating the config - %s", error)
 
     @property
-    def name(self):
+    def name(self) -> str:
+        """Return the class name; used as a label in logs and argparse prog."""
         return self.__class__.__name__
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *_args: Any, **_kwargs: Any) -> Any:  # noqa: ANN401 — CLI entry-point shim forwards arbitrary args
+        """Make the instance callable so it can be used as a CLI entry point."""
         return self.run()
 
-    def stop(self):
-        loop = self.loop
-        loop.call_later(1, self.check_tasks_and_stop)
-
-    def should_wait_task(self, t: asyncio.Task):
-        return False
-
-    def check_tasks_and_stop(self):
-        loop = self.loop
-        running_tasks = [t.get_coro() for t in asyncio.all_tasks(loop) if self.should_wait_task(t)]
-        if running_tasks:
-            logging.warning(f"Wait for tasks complete: {running_tasks}")
-            loop.call_later(2, self.check_tasks_and_stop)
-            return
-        self.loop.stop()
-
     def run(self) -> int:
+        """Top-level entry: log startup, execute, swallow KeyboardInterrupt."""
         try:
-            self.init()
-            if self.args['cloud']:
-                logging.info(f'Start {self.name}')
+            if self.args["cloud"]:
+                logger.warning("Start %s", self.name)
             else:
-                logging.info(f'Start {self.name}\n {self.config}')
-            if self.args['dry_run']:
-                logging.info('Dry run of %s complete', self.name)
+                logger.warning("Start %s\n %s", self.name, self.config)
+            if self.args["dry_run"]:
+                logger.info("Dry run of %s complete", self.name)
                 return 0
 
-            self.loop.create_task(self.check_update_config())
-            self.execute()
-
+            with self.loop_executor:
+                return self.execute()
         except KeyboardInterrupt:
-            logging.info('Interrupted %s', self.name)
+            logger.info("Interrupted %s", self.name)
         except Exception as err:
-            logging.error(err)
+            logger.exception("Unhandled exception in %s", self.name, exc_info=err)
             raise
         return 1
 
-    def _setup_cloud_logging(self, debug=False):
-        self.logging_client = cloud_logging.Client()
-        self.logging_client.get_default_handler()
-        self.logging_client.setup_logging(log_level=logging.DEBUG if debug else logging.INFO)
-
-    def _setup_local_logging(self, debug=False):
-        ch = local_logging.StreamHandler()
-        ch.setLevel(logging.DEBUG if debug else logging.INFO)
-        ch.setFormatter(logging.Formatter(style='{', fmt='{levelname:5}{lineno:4}:{filename:30}{message}'))
-
-        local_logging.root.addHandler(ch)
-        local_logging.root.setLevel(logging.DEBUG if debug else logging.INFO)
-
-    def execute(self):
-        with self.loop_executor:
-            try:
-                return self.loop.run_forever()
-            finally:
-                self.loop.close()
-
+    def execute(self) -> int:
+        """Subclass hook: do the actual work and return an exit code."""
+        raise NotImplementedError("Subclass must implement execute()")

@@ -1,119 +1,70 @@
-import typing
-from functools import cached_property
+"""Firestore-backed FSM storage for aiogram v3."""
 
-from aiogram.dispatcher.storage import BaseStorage
+from collections.abc import Mapping
+from functools import cached_property
+from typing import Any
+
+from aiogram.fsm.state import State
+from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from google.cloud import firestore
 
-__all__ = ['FirebaseStorage']
+__all__ = ["FirebaseStorage"]
 
 
-AIOGRAM_STATE = 'aiogram_state'
-AIOGRAM_DATA = 'aiogram_data'
-AIOGRAM_BUCKET = 'aiogram_bucket'
+AIOGRAM_STATE = "aiogram_state"
+AIOGRAM_DATA = "aiogram_data"
 
 
 class FirebaseStorage(BaseStorage):
+    """aiogram v3 FSM storage backed by Firestore.
 
-    def __init__(self, db: firestore.AsyncClient):
+    State and data are stored in separate collections keyed by `bot_id:chat_id:user_id[:thread_id]`.
+    The v2 `bucket` API is gone in v3 — only `state` and `data` are persisted.
+    """
+
+    def __init__(self, db: firestore.AsyncClient) -> None:
+        """Store the Firestore async client."""
         self.db = db
 
     @cached_property
-    def _state(self):
+    def _state(self) -> firestore.AsyncCollectionReference:
         return self.db.collection(AIOGRAM_STATE)
 
     @cached_property
-    def _data(self):
+    def _data(self) -> firestore.AsyncCollectionReference:
         return self.db.collection(AIOGRAM_DATA)
 
-    @cached_property
-    def _bucket(self):
-        return self.db.collection(AIOGRAM_BUCKET)
-
-    async def set_state(self, *,
-                        chat: typing.Union[str, int, None] = None,
-                        user: typing.Union[str, int, None] = None,
-                        state: typing.Optional[typing.AnyStr] = None):
-        doc_ref = await self.get_doc_ref(chat, user, self._state)
+    async def set_state(self, key: StorageKey, state: str | State | None = None) -> None:
+        """Persist or delete the FSM state for `key`."""
+        doc_ref = self._state.document(_doc_id(key))
         if state is None:
             await doc_ref.delete()
         else:
-            await doc_ref.set({'state': self.resolve_state(state)})
+            await doc_ref.set({"state": state.state if isinstance(state, State) else state})
 
-    async def get_state(self, *,
-                        chat: typing.Union[str, int, None] = None,
-                        user: typing.Union[str, int, None] = None,
-                        default: typing.Optional[str] = None) -> typing.Optional[str]:
-        doc_ref = await self.get_doc_ref(chat, user, self._state)
+    async def get_state(self, key: StorageKey) -> str | None:
+        """Return the FSM state for `key`, or `None` if absent."""
+        doc_ref = self._state.document(_doc_id(key))
         doc = await doc_ref.get()
-        return doc.get('state') if doc.exists else self.resolve_state(default)
+        return doc.get("state") if doc.exists else None
 
-    async def set_data(self, *,
-                       chat: typing.Union[str, int, None] = None,
-                       user: typing.Union[str, int, None] = None,
-                       data: typing.Dict = None):
-        doc_ref = await self.get_doc_ref(chat, user, self._data)
-        if not data:
-            await doc_ref.delete()
-        else:
-            await doc_ref.set(data)
+    async def set_data(self, key: StorageKey, data: Mapping[str, Any]) -> None:  # noqa: ANON002 — aiogram BaseStorage.set_data contract
+        """Replace the FSM data document for `key`."""
+        doc_ref = self._data.document(_doc_id(key))
+        await doc_ref.set(dict(data))
 
-    async def get_data(self, *,
-                       chat: typing.Union[str, int, None] = None,
-                       user: typing.Union[str, int, None] = None,
-                       default: typing.Optional[typing.Dict] = None) -> typing.Dict:
-        doc_ref = await self.get_doc_ref(chat, user, self._data)
+    async def get_data(self, key: StorageKey) -> dict[str, Any]:  # noqa: ANON002 — aiogram BaseStorage.get_data contract; Firestore doc.to_dict() return
+        """Return the FSM data dict for `key`, or `{}` if absent."""
+        doc_ref = self._data.document(_doc_id(key))
         doc = await doc_ref.get()
-        return doc.to_dict() if doc.exists else default or {}
+        return doc.to_dict() or {} if doc.exists else {}
 
-    async def update_data(self, *,
-                          chat: typing.Union[str, int, None] = None,
-                          user: typing.Union[str, int, None] = None,
-                          data: typing.Dict = None, **kwargs):
-        if not data or not isinstance(data, dict):
-            return
-        doc_ref = await self.get_doc_ref(chat, user, self._data)
-        await doc_ref.set(data, merge=True)
+    async def close(self) -> None:
+        """No-op; the Firestore client is owned externally."""
 
-    async def get_bucket(self, *,
-                         chat: typing.Union[str, int, None] = None,
-                         user: typing.Union[str, int, None] = None,
-                         default: typing.Optional[dict] = None) -> typing.Dict:
-        doc_ref = await self.get_doc_ref(chat, user, self._bucket)
-        doc = await doc_ref.get()
-        return doc.to_dict() if doc.exists else default or {}
 
-    async def set_bucket(self, *,
-                         chat: typing.Union[str, int, None] = None,
-                         user: typing.Union[str, int, None] = None,
-                         bucket: typing.Dict = None):
-        doc_ref = await self.get_doc_ref(chat, user, self._bucket)
-        if not bucket:
-            await doc_ref.delete()
-        else:
-            await doc_ref.set(bucket)
-
-    async def update_bucket(self, *,
-                            chat: typing.Union[str, int, None] = None,
-                            user: typing.Union[str, int, None] = None,
-                            bucket: typing.Dict = None, **kwargs):
-        if not bucket or not isinstance(bucket, dict):
-            return
-        doc_ref = await self.get_doc_ref(chat, user, self._data)
-        await doc_ref.set(bucket, merge=True)
-
-    async def get_doc_ref(self,
-                          chat: typing.Union[str, int, None],
-                          user: typing.Union[str, int, None],
-                          collection: firestore.AsyncCollectionReference):
-        chat, user = self.check_address(chat=chat, user=user)
-        return collection.document(f'{chat}_{user}')
-
-    async def close(self):
-        """
-        Nothing to close
-        :return:
-        """
-        pass
-
-    async def wait_closed(self):
-        return True
+def _doc_id(key: StorageKey) -> str:
+    parts = [str(key.bot_id), str(key.chat_id), str(key.user_id)]
+    if key.thread_id is not None:
+        parts.append(str(key.thread_id))
+    return ":".join(parts)

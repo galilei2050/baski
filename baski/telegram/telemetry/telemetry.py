@@ -1,0 +1,63 @@
+"""Telegram-aware telemetry helper."""
+
+from typing import Any
+
+from aiogram import types
+
+from baski.telemetry import Telemetry
+
+__all__ = ["MessageTelemetry"]
+
+
+class MessageTelemetry(Telemetry):
+    """`Telemetry` subclass that knows how to flatten aiogram messages into events."""
+
+    def add_message(
+        self,
+        event_type: str,
+        message: types.Message,
+        user: types.User,
+        **payload: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
+    ) -> None:
+        """Record a telemetry event for an incoming/outgoing Telegram message."""
+        self.add(
+            str(user.id),
+            event_type,
+            self.message_payload(message, user) | payload,
+            timestamp=message.date,
+        )
+
+    def message_payload(self, message: types.Message, user: types.User) -> dict:  # noqa: ANON002 — arbitrary user telemetry event payload
+        """Build the telemetry payload dict for `message`."""
+        data: dict[str, Any] = {
+            "content_type": str(message.content_type),
+            "username": user.username,
+            "language_code": user.language_code,
+            "is_premium": user.is_premium,
+            "user_id": user.id,
+        }
+        if message.chat:
+            data = data | {"chat_type": message.chat.type}
+        if message.text:
+            data = data | {
+                "text_letters_cnt": len(message.text),
+                "text_words_cnt": message.text.count(" ") + 1,
+            }
+        if message.video:
+            data = data | {
+                "video_duration": message.video.duration,
+                "video_file_size": message.video.file_size,
+                "video_width": message.video.width,
+                "video_height": message.video.height,
+            }
+        if message.voice:
+            data = data | {"voice_duration": message.voice.duration, "voice_file_size": message.voice.file_size}
+        if message.audio:
+            data = data | {"audio_duration": message.audio.duration, "audio_file_size": message.audio.file_size}
+        if message.photo:
+            data = data | {
+                "photo_width": message.photo[-1].width,
+                "photo_height": message.photo[-1].height,
+                "photo_file_size": message.photo[-1].file_size,
+            }
+        return data

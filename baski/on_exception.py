@@ -1,60 +1,115 @@
+"""Decorator that intercepts exceptions from async functions and routes them to a handler."""
+
 import asyncio
 import inspect
 import logging
 import typing
 from functools import wraps
+
 from .primitives.name import fn_name
 
-__all__ = ['do_nothing', 'do_nothing_sync', 'on_exception']
+__all__ = ["do_nothing", "do_nothing_sync", "on_exception"]
 
 
-async def do_nothing(exception: None, *args, **kwargs):
-    pass
+# Default logger for cases where no logger is available
+_default_logger = logging.getLogger(__name__)
 
 
-def do_nothing_sync(exception: None, *args, **kwargs):
-    pass
+async def do_nothing(
+    exception: None,
+    *args: typing.Any,  # noqa: ANN401 — generic no-op handler that swallows any signature
+    **kwargs: typing.Any,  # noqa: ANN401 — generic no-op handler that swallows any signature
+) -> None:
+    """Async no-op handler used as the default for on_exception."""
 
 
-def on_exception(
-        do: typing.Callable = do_nothing,
-        exceptions=Exception,
-        skip_traceback_exceptions=(),
-        warn_exceptions=(),
-        name=None
-):
-    def wrapper(fn: typing.Callable):
+def do_nothing_sync(
+    exception: None,
+    *args: typing.Any,  # noqa: ANN401 — generic no-op handler that swallows any signature
+    **kwargs: typing.Any,  # noqa: ANN401 — generic no-op handler that swallows any signature
+) -> None:
+    """Sync no-op handler counterpart to do_nothing."""
+
+
+def _log_handled_exception(  # noqa: PLR0913 — internal helper; all params load-bearing and called from a single site
+    exc: BaseException,
+    _logger: logging.Logger,
+    name: str,
+    args: tuple,
+    kwargs: dict,  # noqa: ANON002 — wraps arbitrary user function
+    warn_exceptions: tuple,
+    skip_traceback_exceptions: tuple,
+) -> None:
+    _logger.info(f"{name} called with {args}, {kwargs}")
+    msg = f"{exc} while call {name}"
+    if isinstance(exc, warn_exceptions):
+        _logger.warning(msg)
+    elif isinstance(exc, skip_traceback_exceptions):
+        _logger.error(msg)
+    else:
+        _logger.exception(msg)
+
+
+async def _invoke_handler(  # noqa: PLR0913 — internal helper called from a single site; all params load-bearing
+    do: typing.Callable,
+    args: tuple,
+    kwargs: dict,  # noqa: ANON002 — wraps arbitrary user function
+    exception: BaseException,
+    *,
+    is_async: bool,
+) -> typing.Any:  # noqa: ANN401 — return value forwarded from arbitrary user handler
+    if is_async:
+        return await do(*args, exception=exception, **kwargs)
+    return do(*args, exception=exception, **kwargs)
+
+
+def on_exception(  # noqa: PLR0913 — decorator factory; each option configures distinct behavior, grouping would hurt call-site readability
+    do: typing.Callable = do_nothing,
+    exceptions: type[BaseException] | tuple[type[BaseException], ...] = Exception,
+    skip_traceback_exceptions: tuple = (),
+    warn_exceptions: tuple = (),
+    name: str | None = None,
+    logger: logging.Logger | None = None,
+) -> typing.Callable:
+    """Wrap an async function so listed exceptions are logged and forwarded to do()."""
+
+    def wrapper(fn: typing.Callable) -> typing.Callable:
         _name = name or fn_name(fn)
-        assert inspect.iscoroutinefunction(fn), "Only async functions supported"
+        if not inspect.iscoroutinefunction(fn):
+            raise TypeError(f"on_exception supports async functions only, got {_name}")
         is_do_async = inspect.iscoroutinefunction(do)
+        _logger = logger or _default_logger
 
         @wraps(fn)
-        async def inner(*args, **kwargs):
-            ret_val = None
+        async def inner(
+            *args: typing.Any,  # noqa: ANN401 — wraps arbitrary user function
+            **kwargs: typing.Any,  # noqa: ANN401 — wraps arbitrary user function
+        ) -> typing.Any:  # noqa: ANN401 — return type mirrors wrapped function
             try:
                 ret_val = await fn(*args, **kwargs)
             except asyncio.CancelledError:
-                logging.warning(f"Coroutine {_name} was cancelled. Live is different", _name)
-            except (SystemExit, KeyboardInterrupt, GeneratorExit):
-                raise
+                _logger.warning("Coroutine %s was cancelled.", _name)
+                return None
             except exceptions as e:
-                logging.info(f'{_name} called with {args}, {kwargs}')
-                msg = f'{e} while call {_name}'
-                if isinstance(e, warn_exceptions):
-                    logging.warning(msg)
-                elif isinstance(e, skip_traceback_exceptions):
-                    logging.error(msg)
-                else:
-                    logging.exception(msg)
-
-                if is_do_async:
-                    ret_val = await do(*args, exception=e, **kwargs)
-                else:
-                    ret_val = do(*args, exception=e, **kwargs)
-            finally:
-                if isinstance(ret_val, Exception):
-                    raise ret_val
-                return ret_val
+                _log_handled_exception(
+                    exc=e,
+                    _logger=_logger,
+                    name=_name,
+                    args=args,
+                    kwargs=kwargs,
+                    warn_exceptions=warn_exceptions,
+                    skip_traceback_exceptions=skip_traceback_exceptions,
+                )
+                ret_val = await _invoke_handler(
+                    do=do,
+                    is_async=is_do_async,
+                    args=args,
+                    kwargs=kwargs,
+                    exception=e,
+                )
+            if isinstance(ret_val, Exception):
+                raise ret_val
+            return ret_val
 
         return inner
 

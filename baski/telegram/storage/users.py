@@ -1,75 +1,84 @@
-import typing
-import asyncio
+"""Firestore-backed Telegram user storage."""
 
-from dataclasses import dataclass, field, asdict, fields, is_dataclass
+import asyncio
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from datetime import datetime
+
 from aiogram import types
 from google.cloud import firestore
+
 from ...concurrent import as_task
 from ...primitives.dataclass import from_doc
 
-__all__ = ['TelegramUser', 'UsersStorage']
+__all__ = ["TelegramUser", "UsersStorage"]
 
 
-@dataclass()
+@dataclass
 class TelegramUser:
-    id: str = field(default=None)
-    username: str = field(default=None)
-    first_name: str = field(default=None)
-    last_name: str = field(default=None)
-    last_in_message: datetime = field(default=None)
-    last_out_message: datetime = field(default=None)
+    """Persistable Telegram user record."""
 
-    def sync_with(self, tg_user: types.User = None):
+    id: str | None = field(default=None)
+    username: str | None = field(default=None)
+    first_name: str | None = field(default=None)
+    last_name: str | None = field(default=None)
+    last_in_message: datetime | None = field(default=None)
+    last_out_message: datetime | None = field(default=None)
+
+    def sync_with(self, tg_user: types.User | None = None) -> bool:
+        """Copy mutable fields from `tg_user`; return True if anything changed."""
         if not tg_user:
             return False
-
         changed = False
-        for f in ['id', 'first_name', 'last_name', 'username']:
+        for f in ["id", "first_name", "last_name", "username"]:
             if getattr(self, f) != getattr(tg_user, f):
                 setattr(self, f, getattr(tg_user, f))
                 changed = True
         return changed
 
 
-class UsersStorage(object):
+class UsersStorage:
+    """Async CRUD interface for `TelegramUser` records in a Firestore collection."""
 
     def __init__(
-            self,
-            collection=firestore.CollectionReference,
-            klass=TelegramUser,
-    ):
-        assert is_dataclass(klass), "klass must be a dataclass"
-        assert issubclass(klass, TelegramUser), "klass must be a TelegramUser"
-
-        self._db: firestore.CollectionReference = collection
-        self._klass: TelegramUser = klass
-        self._tasks = []
+        self,
+        collection: firestore.AsyncCollectionReference,
+        klass: type[TelegramUser] = TelegramUser,
+    ) -> None:
+        """Bind the Firestore collection and the dataclass used for hydration."""
+        if not is_dataclass(klass):
+            raise TypeError("klass must be a dataclass")
+        if not issubclass(klass, TelegramUser):
+            raise TypeError("klass must be a TelegramUser")
+        self._db = collection
+        self._klass = klass
+        self._tasks: list[asyncio.Task] = []
         self._fields = {f.name for f in fields(klass)}
 
-    async def all(self):
-        users = []
-        async for user in self._db.stream():
-            users.append(from_doc(self._klass, user))
-        return users
+    async def all(self) -> list[TelegramUser]:
+        """Stream and hydrate every user document in the collection."""
+        return [from_doc(self._klass, user) async for user in self._db.stream()]
 
-    async def commit(self):
+    async def commit(self) -> None:
+        """Await all pending background writes scheduled by `set`."""
         await asyncio.gather(*self._tasks)
         self._tasks = []
 
-    async def delete(self, user_id):
+    async def delete(self, user_id: str | int) -> None:
+        """Delete a user document by id."""
         user_ref = self._db.document(str(user_id))
         await user_ref.delete()
 
-    async def get(self, user_id) -> typing.Optional[TelegramUser]:
+    async def get(self, user_id: str | int) -> TelegramUser | None:
+        """Fetch a user by id, returning `None` if absent."""
         user_ref = self._db.document(str(user_id))
         user_doc = await user_ref.get()
         if not user_doc.exists:
-            return self._klass(id=user_id)
-        data = {k: v for k, v in user_doc.to_dict().items() if k in self._fields}
+            return None
+        data = {k: v for k, v in (user_doc.to_dict() or {}).items() if k in self._fields}
         return self._klass(**data)
 
-    def set(self, user: TelegramUser):
+    def set(self, user: TelegramUser) -> None:
+        """Schedule a merge-write of `user` in the background."""
         user_ref = self._db.document(str(user.id))
         self._tasks.append(as_task(user_ref.set(asdict(user), merge=True)))
         self._tasks = [t for t in self._tasks[:] if not t.done()]

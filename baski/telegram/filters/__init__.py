@@ -1,2 +1,4 @@
-from .attribution import Attribution
-from .user import User
+"""aiogram filter helpers."""
+
+from .attribution import Attribution as Attribution
+from .user import User as User
