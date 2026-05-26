@@ -1,3 +1,5 @@
+"""Error-handling helpers for aiogram dispatchers."""
+
 import asyncio
 from typing import Any, ClassVar
 
@@ -21,16 +23,23 @@ class SaySorryHandler:
     """Replies with an apology message. Register via `dp.errors.register(SaySorryHandler())`."""
 
     def __init__(self, logger: Logger | None = None) -> None:
+        """Store logger; defaults to `LocalLogger`."""
         self._logger: Logger = logger or LocalLogger()
 
-    async def __call__(self, event: types.ErrorEvent, **_: Any) -> Any:
+    async def __call__(
+        self,
+        event: types.ErrorEvent,
+        **_: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
+    ) -> Any:  # noqa: ANN401 — aiogram middleware/observer forwarding
+        """Log the exception and reply to the originating message."""
         self._logger.warning(f"{event.exception}")
         message = _get_message_from_update(event.update)
         if message:
             return await message.reply(**self.get_text_from_exception(event.exception))
         return None
 
-    def get_text_from_exception(self, _exception: BaseException) -> dict:
+    def get_text_from_exception(self, _exception: BaseException) -> dict:  # noqa: ANON002 — aiogram message.reply kwargs payload, override-customised
+        """Return reply payload for a given exception (override to customise)."""
         return I_AM_SORRY
 
 
@@ -54,11 +63,17 @@ class LogErrorHandler:
         warning_exceptions: tuple[type[BaseException], ...] = (),
         logger: Logger | None = None,
     ) -> None:
+        """Store exception categories and logger."""
         self.ignore_exceptions = self._DEFAULT_IGNORE + ignore_exceptions
         self.warning_exceptions = self._DEFAULT_WARN + warning_exceptions
         self._logger: Logger = logger or LocalLogger()
 
-    async def __call__(self, event: types.Message | types.CallbackQuery, **kwargs: Any) -> Any:
+    async def __call__(
+        self,
+        event: types.Message | types.CallbackQuery,
+        **kwargs: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
+    ) -> Any:  # noqa: ANN401 — aiogram middleware/observer forwarding
+        """Forward to `super().__call__` while logging and classifying exceptions."""
         user_id: int | str = "undefined"
         if event.from_user is not None:
             user_id = event.from_user.id
@@ -74,7 +89,8 @@ class LogErrorHandler:
             raise
         return None
 
-    def get_text_from_exception(self, _exception: BaseException) -> dict:
+    def get_text_from_exception(self, _exception: BaseException) -> dict:  # noqa: ANON002 — aiogram message.reply kwargs payload, override-customised
+        """Return reply payload for a given exception (override to customise)."""
         return I_AM_SORRY
 
 

@@ -1,3 +1,5 @@
+"""AsyncServer base class: arg parsing, config, structured logging, lifecycle hooks."""
+
 import argparse
 import asyncio
 import logging as local_logging
@@ -22,7 +24,7 @@ __all__ = ["AsyncServer"]
 logger = local_logging.getLogger(__name__)
 
 
-def handler(signum: int, frame: Any) -> None:  # noqa: ARG001 — `frame` is required by signal.signal handler signature
+def handler(signum: int, frame: Any) -> None:  # noqa: ARG001, ANN401 — signal.signal handler signature requires (int, FrameType|None) typed as Any here
     print("====================================================\n")  # noqa: T201 — SIGINT stack-dump goes to stdout; logging may not be flushed
     print("*** STACKTRACE - START ***")  # noqa: T201 — see above
     code = []
@@ -41,16 +43,20 @@ def handler(signum: int, frame: Any) -> None:  # noqa: ARG001 — `frame` is req
 
 
 class AsyncServer:
+    """Base for long-running processes: parses args, loads config, wires logging."""
+
     def __init__(self) -> None:
+        """Register SIGINT stacktrace handler, eagerly init the logging client."""
         signal.signal(signal.SIGINT, handler)
         _ = self.logging_client
         logger.info("Init %s", self.name)
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        pass
+        """Override in a subclass to register additional CLI arguments."""
 
     @cached_property
     def logging_client(self) -> cloud_logging.Client | None:
+        """Return a Cloud Logging client in cloud mode, else configure stdlib logging."""
         if self.config["cloud"]:
             local_logging.root.handlers.clear()
             logging_client = cloud_logging.Client()
@@ -71,6 +77,7 @@ class AsyncServer:
 
     @cached_property
     def logger(self) -> Logger:
+        """Return a process-scoped structured logger (Cloud or local)."""
         # Process-scoped structured logger for background components that have
         # no Request (e.g. the Mongo CommandListener). Request-scoped logging
         # still goes through dependencies.get_logger(request).
@@ -80,11 +87,13 @@ class AsyncServer:
 
     @cached_property
     def loop_executor(self) -> ThreadPoolExecutor:
+        """Return the shared thread pool used by ``loop.run_in_executor``."""
         # Default to 64 threads for I/O-bound operations (GCS uploads, etc.)
         return ThreadPoolExecutor(max_workers=self.config.concurrency or 64)
 
     @cached_property
-    def args(self) -> dict[str, Any]:
+    def args(self) -> dict[str, Any]:  # noqa: ANON002 — argparse Namespace flattened to dict; keys vary per subclass
+        """Parse CLI args (plus any subclass additions) and return as a plain dict."""
         parser = argparse.ArgumentParser(prog=self.name)
         parser.add_argument("-d", "--debug", help="Run in debug mode", default=bool(is_debug()), action="store_true")
         parser.add_argument("-c", "--config", help="Path to config file", default="config.yml")
@@ -101,6 +110,7 @@ class AsyncServer:
 
     @cached_property
     def config(self) -> AppConfig:
+        """Build the singleton AppConfig from YAML and CLI overrides."""
         cfg = AppConfig()
         cfg.load_yml(self.args["config"])
         for a in ["debug", "cloud", "project_id", "region"]:
@@ -127,12 +137,15 @@ class AsyncServer:
 
     @property
     def name(self) -> str:
+        """Return the class name; used as a label in logs and argparse prog."""
         return self.__class__.__name__
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ARG002 — accepts arbitrary forwards from CLI entry point; ignored by design
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ARG002, ANN401 — CLI entry-point shim forwards arbitrary args; ignored by design
+        """Make the instance callable so it can be used as a CLI entry point."""
         return self.run()
 
     def run(self) -> int:
+        """Top-level entry: log startup, execute, swallow KeyboardInterrupt."""
         try:
             if self.args["cloud"]:
                 logger.warning("Start %s", self.name)
@@ -152,4 +165,5 @@ class AsyncServer:
         return 1
 
     def execute(self) -> int:
+        """Subclass hook: do the actual work and return an exit code."""
         raise NotImplementedError("Subclass must implement execute()")

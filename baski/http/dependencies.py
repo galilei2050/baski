@@ -1,7 +1,9 @@
-import google.cloud.firestore as firestore
-import google.cloud.pubsub as pubsub
-import google.cloud.storage as storage
-import google.cloud.tasks_v2 as tasks_v2
+"""FastAPI dependency providers: pull request-scoped clients off ``request.state``."""
+
+import google.cloud.firestore as firestore  # noqa: PLR0402 — `from google.cloud import X` form is broken for namespace pkg under mypy
+import google.cloud.pubsub as pubsub  # noqa: PLR0402 — see above
+import google.cloud.storage as storage  # noqa: PLR0402 — see above
+import google.cloud.tasks_v2 as tasks_v2  # noqa: PLR0402 — see above
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from httpx import AsyncClient
@@ -29,12 +31,13 @@ __all__ = [
 security = HTTPBearer(auto_error=False)
 
 
-# Dependency to get the application config
 def get_config(request: Request) -> AppConfig:
+    """Return the application config attached to ``request.state``."""
     return request.state.config
 
 
 def get_logger(request: Request) -> Logger:
+    """Return a request-scoped logger (Cloud Logging in cloud mode, stdlib locally)."""
     if request.state.logging_client:
         return CloudLogger(
             logger_client=request.state.logging_client, request=request, project_id=request.state.config["project_id"]
@@ -42,48 +45,48 @@ def get_logger(request: Request) -> Logger:
     return LocalLogger(request=request)
 
 
-# Dependency to get the MongoDB client
 def get_mongo_client(request: Request) -> AsyncMongoClient:
+    """Return the shared async MongoDB client."""
     return request.state.mongo_client
 
 
-# Dependency to get the default MongoDB database
 def get_default_database(request: Request) -> AsyncDatabase:
+    """Return the default MongoDB database from the connection URI."""
     return request.state.mongo_client.get_default_database()
 
 
-# Dependency to get the Firestore client
 def get_firestore_client(request: Request) -> firestore.AsyncClient:
+    """Return the shared async Firestore client."""
     return request.state.firestore_client
 
 
-# Dependency to get the PubSub client
 def get_publisher_client(request: Request) -> pubsub.PublisherClient:
+    """Return the shared Pub/Sub publisher client."""
     return request.state.publisher_client
 
 
-# Dependency to get the HTTP client
 def get_http_client(request: Request) -> AsyncClient:
+    """Return the shared outbound httpx client."""
     return request.state.http_client
 
 
-# Dependency to get the Storage client
 def get_storage_client(request: Request) -> storage.Client:
+    """Return the shared GCS storage client."""
     return request.state.storage_client
 
 
-# Dependency to get the dataset bucket
 def get_dataset_bucket(request: Request) -> storage.Bucket:
+    """Return the configured GCS dataset bucket."""
     return request.state.dataset_bucket
 
 
-# Dependency to get the Cloud Tasks async client
 def get_cloud_tasks_client(request: Request) -> tasks_v2.CloudTasksAsyncClient:
+    """Return the shared async Cloud Tasks client."""
     return request.state.cloud_tasks_client
 
 
-# Dependency to extract token from a Bearer authorization header
 def get_auth_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str | None:
+    """Extract the Bearer token from the Authorization header, if present."""
     if credentials:
         return credentials.credentials
     return None

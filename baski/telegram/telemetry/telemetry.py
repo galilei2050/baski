@@ -1,3 +1,5 @@
+"""Telegram-aware telemetry helper."""
+
 from typing import Any
 
 from aiogram import types
@@ -8,13 +10,16 @@ __all__ = ["MessageTelemetry"]
 
 
 class MessageTelemetry(Telemetry):
+    """`Telemetry` subclass that knows how to flatten aiogram messages into events."""
+
     def add_message(
         self,
         event_type: str,
         message: types.Message,
         user: types.User,
-        **payload: Any,
+        **payload: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
     ) -> None:
+        """Record a telemetry event for an incoming/outgoing Telegram message."""
         self.add(
             str(user.id),
             event_type,
@@ -22,7 +27,8 @@ class MessageTelemetry(Telemetry):
             timestamp=message.date,
         )
 
-    def message_payload(self, message: types.Message, user: types.User) -> dict:
+    def message_payload(self, message: types.Message, user: types.User) -> dict:  # noqa: ANON002 — arbitrary user telemetry event payload
+        """Build the telemetry payload dict for `message`."""
         data: dict[str, Any] = {
             "content_type": str(message.content_type),
             "username": user.username,

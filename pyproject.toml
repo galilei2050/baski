@@ -7,7 +7,7 @@ name = "baski"
 version = "0.5.0"
 description = "Shared foundation library: primitives, patterns, FastAPI server, GCP integrations, Telegram framework."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "Vladimir Baskakov" }]
@@ -52,53 +52,52 @@ dev = [
     "pre-commit",
 ]
 
-[tool.mypy]
-python_version = "3.11"
-warn_unused_ignores = true
-warn_redundant_casts = true
-warn_unreachable = true
-check_untyped_defs = true
-no_implicit_optional = true
-ignore_missing_imports = true
-
 [tool.hatch.build.targets.wheel]
 packages = ["baski"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["ALL"]
+external = ["ANON001", "ANON002"]  # anon_lint.py custom rules
 ignore = [
     # Formatter conflicts
-    "COM812", "ISC001",
+    "COM812",
     # Project conventions
-    "RUF013",  # implicit-optional — we use explicit X | None
+    "RUF013",  # implicit-optional — explicit X | None used instead
+    "RUF001",  # ambiguous unicode chars — bilingual (RU + EN) plugins need real Cyrillic
+    "SIM110",  # explicit for-loops over any() — easier to extend with logging later
     "D203", "D213",  # docstring style conflicts (we use D211, D212)
-    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",  # missing docstrings — not enforced
-    "B008",    # function calls in defaults — fastapi Depends() pattern
-    "FAST002", # Annotated[T, Depends()] — project prefers the simpler `param: T = Depends(...)` form
-    "FBT",     # boolean trap — not enforced
-    "G",       # logging-format — we use structured logging
-    "TRY003",  # long exception messages
-    "EM101", "EM102",  # exception strings — not enforced
-    "ANN401",  # **kwargs: Any — required for httpx/fastapi forwarding
-    "TID252",  # relative imports — project prefers `from ..pkg import x` for intra-package
-    "PLR0402", # `import X.Y as Y` — required for google.cloud namespace packages (from-import trips mypy attr-defined)
+    "G",    # logging-format
+    "TRY003",
+    "EM101", "EM102",
+    "TID252",
+    "B008",  # FastAPI
 ]
 
 [tool.ruff.lint.pylint]
-max-args = 8
-max-positional-args = 8
-max-branches = 8
-max-statements = 45
+max-args = 4
+max-positional-args = 4
+max-branches = 7
+max-statements = 20
 max-locals = 10
 max-bool-expr = 3
 max-nested-blocks = 3
+max-returns = 5
 
 [tool.ruff.lint.mccabe]
 max-complexity = 8
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+check_untyped_defs = true
+no_implicit_optional = true
+ignore_missing_imports = true

@@ -1,3 +1,5 @@
+"""User-injecting filter backed by `UsersStorage`."""
+
 from typing import Any, ClassVar
 
 from aiogram import types
@@ -20,9 +22,15 @@ class User(BaseFilter):
 
     @classmethod
     def setup(cls, users: UsersStorage) -> None:
+        """Bind the shared `UsersStorage` used by all filter instances."""
         cls.users = users
 
-    async def __call__(self, event: types.Message | types.CallbackQuery, **_: Any) -> bool | dict:
+    async def __call__(
+        self,
+        event: types.Message | types.CallbackQuery,
+        **_: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
+    ) -> bool | dict:  # noqa: ANON002 — aiogram filter context injected into handler kwargs
+        """Resolve `TelegramUser` and inject `user`/`users` into the handler context."""
         if not self.inject_user or self.users is None:
             return True
         tg_user = event.from_user

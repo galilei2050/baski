@@ -1,3 +1,5 @@
+"""Async retry helper with linear-bounded random backoff."""
+
 import asyncio
 import logging
 import random
@@ -7,7 +9,7 @@ __all__ = ["UnavailableError", "retry"]
 
 
 class UnavailableError(Exception):
-    pass
+    """Raised when retry exhausts all attempts."""
 
 
 def wait_time_function(
@@ -16,10 +18,11 @@ def wait_time_function(
     min_wait_ms: int,
     max_wait_ms: int,
 ) -> int:
+    """Default backoff: attempt index times a uniform random jitter in ms."""
     return i * random.randrange(min_wait_ms, max_wait_ms)  # noqa: S311 — backoff jitter, not a security primitive
 
 
-async def retry(
+async def retry(  # noqa: PLR0913 — knob-rich tuning API; grouping into a config object would hurt typical call ergonomics
     do: typing.Callable,
     exceptions: typing.Iterable,
     times: int = 50,
@@ -28,8 +31,9 @@ async def retry(
     service_name: str | None = None,
     wait_time_fn: typing.Callable = wait_time_function,
     logger: logging.Logger | None = None,
-    **kwargs: typing.Any,
-) -> typing.Any:
+    **kwargs: typing.Any,  # noqa: ANN401 — forwarded transparently to do()
+) -> typing.Any:  # noqa: ANN401 — return value forwarded from arbitrary do()
+    """Call do(**kwargs) up to times, sleeping between retries on listed exceptions."""
     exceptions = tuple(exceptions)
     for i in range(1, times + 1):
         try:

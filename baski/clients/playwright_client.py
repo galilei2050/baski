@@ -1,3 +1,5 @@
+"""Async Playwright client that fetches pages and converts them to cleaned markdown."""
+
 import asyncio
 from datetime import UTC
 from datetime import datetime as _dt
@@ -37,7 +39,8 @@ class PlaywrightClient:
     Note: Requires 'playwright install firefox' after pip install
     """
 
-    def __init__(self, headless: bool = True, logger: Logger | None = None, timeout: int = 90000) -> None:
+    def __init__(self, *, headless: bool = True, logger: Logger | None = None, timeout: int = 90000) -> None:
+        """Configure browser launch options; the browser is started in ``__aenter__``."""
         self.headless = headless
         self.logger = logger
         self.timeout = timeout
@@ -46,6 +49,7 @@ class PlaywrightClient:
         self._context: BrowserContext | None = None
 
     async def __aenter__(self) -> Self:
+        """Start Playwright and open a browser context."""
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.firefox.launch(headless=self.headless)
         self._context = await self._browser.new_context(user_agent=_SAFARI_UA, viewport={"width": 1600, "height": 900})
@@ -59,6 +63,7 @@ class PlaywrightClient:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
+        """Close browser context, browser, and stop Playwright."""
         if self._context:
             await self._context.close()
         if self._browser:
@@ -97,54 +102,39 @@ class PlaywrightClient:
     async def _safe_goto(self, page: Page, url: str) -> None:
         """Navigate to URL with retry logic for network errors and timeouts."""
         last_error: Exception | None = None
-
         for attempt in range(1, 4):
             try:
-                response = await page.goto(url, wait_until="domcontentloaded")
-                await page.wait_for_load_state("load")
-                await page.wait_for_selector("body")
-
-                if (
-                    response
-                    and response.status >= HTTPStatus.BAD_REQUEST
-                    and response.status != _STATUS_INVALID_SENTINEL
-                ):
-                    mock_request = HttpxRequest("GET", url)
-                    mock_response = HttpxResponse(status_code=response.status, request=mock_request)
-                    last_error = HTTPStatusError(
-                        message=f"HTTP {response.status} error for {url}",
-                        request=mock_request,
-                        response=mock_response,
-                    )
-                    if self.logger:
-                        self.logger.info(f"Attempt {attempt} failed", labels={"url": url, "status": response.status})
-                    continue
-
+                http_error = await self._attempt_goto(page, url)
             except (PlaywrightError, PlaywrightTimeoutError) as e:
-                error_msg = str(e)
-                is_retryable = any(
-                    pattern in error_msg
-                    for pattern in [
-                        "net::ERR_ABORTED",
-                        "net::ERR_HTTP_RESPONSE_CODE_FAILURE",
-                        "net::ERR_TIMED_OUT",
-                        "Timeout",
-                        "net::ERR_PROXY_CONNECTION_FAILED",
-                    ]
-                )
-
-                if not is_retryable:
+                if not _is_retryable_error(str(e)):
                     raise
-
                 last_error = e
                 if self.logger:
-                    self.logger.info(
-                        f"Attempt {attempt} failed, retrying", labels={"url": url, "error": error_msg[:100]}
-                    )
-            else:
+                    self.logger.info(f"Attempt {attempt} failed, retrying", labels={"url": url, "error": str(e)[:100]})
+                continue
+            if http_error is None:
                 return
-
+            last_error = http_error
+            if self.logger:
+                self.logger.info(
+                    f"Attempt {attempt} failed", labels={"url": url, "status": http_error.response.status_code}
+                )
         raise last_error or RuntimeError(f"Failed to fetch page: {url}")
+
+    async def _attempt_goto(self, page: Page, url: str) -> HTTPStatusError | None:
+        """Single navigation attempt; returns an HTTPStatusError on bad status, else None."""
+        response = await page.goto(url, wait_until="domcontentloaded")
+        await page.wait_for_load_state("load")
+        await page.wait_for_selector("body")
+        if response and response.status >= HTTPStatus.BAD_REQUEST and response.status != _STATUS_INVALID_SENTINEL:
+            mock_request = HttpxRequest("GET", url)
+            mock_response = HttpxResponse(status_code=response.status, request=mock_request)
+            return HTTPStatusError(
+                message=f"HTTP {response.status} error for {url}",
+                request=mock_request,
+                response=mock_response,
+            )
+        return None
 
     async def _dump_error_context(self, page: Page, url: str, error: Exception) -> None:
         """Save screenshot and HTML on error for debugging."""
@@ -198,8 +188,21 @@ def _html_to_markdown(html: str) -> str:
     return md(str(soup), heading_style="atx")
 
 
+_RETRYABLE_PATTERNS = (
+    "net::ERR_ABORTED",
+    "net::ERR_HTTP_RESPONSE_CODE_FAILURE",
+    "net::ERR_TIMED_OUT",
+    "Timeout",
+    "net::ERR_PROXY_CONNECTION_FAILED",
+)
+
+
+def _is_retryable_error(error_msg: str) -> bool:
+    return any(pattern in error_msg for pattern in _RETRYABLE_PATTERNS)
+
+
 def _strip_by_attr(soup: BeautifulSoup, attr: str, needle: str) -> None:
-    def matches(value: Any) -> bool:
+    def matches(value: Any) -> bool:  # noqa: ANN401 — bs4 attr filter receives str | list | None
         if not value:
             return False
         text = " ".join(value) if isinstance(value, list) else value

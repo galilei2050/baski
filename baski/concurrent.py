@@ -1,3 +1,5 @@
+"""Async helpers: bounded parallel map and sync-to-async adapters."""
+
 import asyncio
 import functools
 import typing
@@ -10,16 +12,18 @@ __all__ = ["as_async", "as_task", "map_async"]
 
 @functools.lru_cache
 def concurrency() -> int:
+    """Return the configured max concurrency for map_async."""
     return AppConfig().concurrency
 
 
 async def map_async(
     array: list[typing.Any],
     async_fn: typing.Callable,
-    *args: typing.Any,
+    *args: typing.Any,  # noqa: ANN401 — forwarded transparently to async_fn
     timeout: float = 60,  # noqa: ASYNC109 — interface contract; wait timeout is internal, not a deadline forwarded to async_fn
-    **kwargs: typing.Any,
+    **kwargs: typing.Any,  # noqa: ANN401 — forwarded transparently to async_fn
 ) -> list:
+    """Apply async_fn to each item with bounded concurrency, collecting non-None results."""
     backlog = list(array)
     results = []
     while backlog:
@@ -34,10 +38,16 @@ async def map_async(
     return results
 
 
-async def as_async(f: typing.Callable, *args: typing.Any, **kwargs: typing.Any) -> typing.Any:
+async def as_async(
+    f: typing.Callable,
+    *args: typing.Any,  # noqa: ANN401 — forwarded transparently to f
+    **kwargs: typing.Any,  # noqa: ANN401 — forwarded transparently to f
+) -> typing.Any:  # noqa: ANN401 — return type mirrors arbitrary callable f
+    """Run a blocking callable in the default executor and await the result."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, functools.partial(f, *args, **kwargs))
 
 
 def as_task(coro: typing.Coroutine) -> asyncio.Task:
+    """Schedule a coroutine on the running loop as a Task."""
     return asyncio.get_event_loop().create_task(coro)

@@ -1,8 +1,10 @@
+"""Async client for the Specter (tryspecter.com) company enrichment API."""
+
 from http import HTTPStatus
 from typing import Any
 
-import google.cloud.storage as storage
 import httpx
+from google.cloud import storage
 
 from .. import get_env
 from ..server.logger import Logger
@@ -11,19 +13,23 @@ __all__ = ["SpectrClient"]
 
 
 class SpectrClient:
+    """Thin wrapper around the Specter REST API."""
+
     def __init__(
         self,
         logger: Logger,
         http_client: httpx.AsyncClient,
         dataset_bucket: storage.Bucket | None = None,
     ) -> None:
+        """Read API key from env and stash the shared HTTP client, logger, and dataset bucket."""
         self._api_key = str(get_env("SPECTR_API_KEY")).strip()
         self._http_client = http_client
         self._logger = logger
         self._base_url = "https://app.tryspecter.com/api/v1"
         self._dataset_bucket = dataset_bucket
 
-    async def request(self, method: str, endpoint: str, **kwargs: Any) -> dict[str, Any] | None:
+    async def request(self, method: str, endpoint: str, **kwargs: Any) -> dict[str, Any] | None:  # noqa: ANN401, ANON002 — httpx request kwargs are polymorphic; Spectr JSON response
+        """Issue an authenticated Specter request; returns None on 404."""
         url = f"{self._base_url}/{endpoint}"
         headers = {"X-API-KEY": self._api_key, "accept": "application/json"}
         kwargs["headers"] = {**headers, **kwargs.get("headers", {})}
@@ -60,7 +66,7 @@ class SpectrClient:
         response.raise_for_status()  # Raises detailed HTTP errors (if any)
         return response.json()
 
-    async def get_company_by_id(self, company_id: str) -> dict[str, Any] | None:
+    async def get_company_by_id(self, company_id: str) -> dict[str, Any] | None:  # noqa: ANON002 — Spectr JSON response, schema varies
         """Return company information by Specter company ID.
 
         https://api.tryspecter.com/api-ref/companies/get-company-info-by-id
@@ -79,14 +85,15 @@ class SpectrClient:
         endpoint = f"companies/{company_id}"
         return await self.request(method="GET", endpoint=endpoint)
 
-    async def enrich_companies(
+    async def enrich_companies(  # noqa: PLR0913 — Specter accepts these as mutually-exclusive lookup keys
         self,
+        *,
         website_url: str | None = None,
         domain: str | None = None,
         linkedin_url: str | None = None,
         linkedin_id: str | None = None,
         crunchbase_url: str | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any] | None:  # noqa: ANON002 — Spectr JSON response, schema varies
         """Enrich companies using the POST /companies endpoint.
 
         https://api.tryspecter.com/api-ref/companies

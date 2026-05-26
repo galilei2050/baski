@@ -1,12 +1,14 @@
+"""Catch-all middleware for messages that no other handler processed."""
+
 import io
 import pathlib
 import tempfile
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-import google.cloud.storage as storage
 from aiogram import Bot, types
 from aiogram.exceptions import TelegramAPIError
+from google.cloud import storage
 
 from ...concurrent import as_async
 from ...pattern import retry
@@ -44,11 +46,17 @@ class UnprocessedMiddleware:
         storage_bucket: str,
         telemetry: MessageTelemetry | None = None,
     ) -> None:
+        """Store bot, GCS bucket handle, and optional telemetry sink."""
         self._bot = bot
         self.telemetry = telemetry
         self.bucket = storage.Bucket(storage_client, storage_bucket)
 
-    async def __call__(self, message: types.Message, **_: Any) -> None:
+    async def __call__(
+        self,
+        message: types.Message,
+        **_: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
+    ) -> None:
+        """Reply with apology, record telemetry, and upload any media."""
         await message.reply(I_DO_NOT_KNOW)
         if self.telemetry and message.from_user:
             self.telemetry.add_message(UNKNOWN_MESSAGE_TYPE, message, message.from_user)
@@ -74,8 +82,9 @@ class UnprocessedMiddleware:
                     object_type="photo",
                 )
 
-    async def _upload_content(
+    async def _upload_content(  # noqa: PLR0913 — keyword-only fan-out to GCS upload
         self,
+        *,
         now: datetime.datetime,
         message: types.Message,
         name: str,
@@ -109,12 +118,12 @@ class UnprocessedMiddleware:
 # catch-all on the last router (e.g. mixed sync/async handlers).
 async def unprocessed_middleware_factory(
     unprocessed: UnprocessedMiddleware,
-) -> Callable[[Callable[[types.Message, dict], Awaitable[Any]], types.Message, dict], Awaitable[Any]]:
+) -> Callable[[Callable[[types.Message, dict], Awaitable[Any]], types.Message, dict], Awaitable[Any]]:  # noqa: ANON002 — aiogram middleware contract
     async def middleware(
-        handler: Callable[[types.Message, dict], Awaitable[Any]],
+        handler: Callable[[types.Message, dict], Awaitable[Any]],  # noqa: ANON002 — aiogram middleware contract
         event: types.Message,
-        data: dict,
-    ) -> Any:
+        data: dict,  # noqa: ANON002 — aiogram middleware context dict
+    ) -> Any:  # noqa: ANN401 — aiogram middleware/observer forwarding
         result = await handler(event, data)
         if result is None:
             await unprocessed(event)

@@ -1,3 +1,5 @@
+"""JSON load/dump helpers with automatic datetime parsing and serialization."""
+
 import json as true_json
 from datetime import datetime
 from json import JSONDecodeError
@@ -8,34 +10,46 @@ import pytz
 
 from .datetime import as_utc
 
-__all__ = ["JSONDecodeError", "dump", "dumpf", "dumps", "load", "loadf", "loads"]
+__all__ = ["JSONDecodeError", "dump", "dumpf", "dumps", "load", "loads"]
 
 
-def load(fp: IO[str]) -> Any:
+def load(fp: IO[str]) -> Any:  # noqa: ANN401 — JSON deserializer return type is inherently dynamic
+    """Decode JSON from a file-like object, parsing datetime-shaped strings."""
     return true_json.load(fp, object_hook=datetime_hook)
 
 
-def loads(text: str) -> Any:
+def loads(text: str) -> Any:  # noqa: ANN401 — JSON deserializer return type is inherently dynamic
+    """Decode JSON from a string, parsing datetime-shaped strings."""
     return true_json.loads(text, object_hook=datetime_hook)
 
 
-def loadf(file_path: str | Path) -> Any:
+def loadf(file_path: str | Path) -> Any:  # noqa: ANN401 — JSON deserializer return type is inherently dynamic
+    """Decode JSON from a file path, parsing datetime-shaped strings."""
     return loads(Path(file_path).read_text(encoding="utf-8"))
 
 
-def dump(data: Any, fp: IO[str]) -> None:
+def dump(data: Any, fp: IO[str]) -> None:  # noqa: ANN401 — JSON serializer accepts any JSON-compatible value
+    """Encode data as JSON to a file-like object with datetime support."""
     return true_json.dump(data, fp, default=convert_date, indent=2, sort_keys=True)
 
 
-def dumps(data: Any, indent: int = 2, sort_keys: bool = True) -> str:
+def dumps(
+    data: Any,  # noqa: ANN401 — JSON serializer accepts any JSON-compatible value
+    indent: int = 2,
+    *,
+    sort_keys: bool = True,
+) -> str:
+    """Encode data as a JSON string with datetime support."""
     return true_json.dumps(data, default=convert_date, indent=indent, sort_keys=sort_keys)
 
 
-def dumpf(data: Any, file_path: str | Path) -> None:
+def dumpf(data: Any, file_path: str | Path) -> None:  # noqa: ANN401 — JSON serializer accepts any JSON-compatible value
+    """Encode data as JSON to a file path with datetime support."""
     Path(file_path).write_text(dumps(data))
 
 
-def convert_date(o: Any) -> str:
+def convert_date(o: Any) -> str:  # noqa: ANN401 — json default hook receives arbitrary unsupported types
+    """JSON default hook that serializes datetime as ISO UTC."""
     if isinstance(o, datetime):
         if o.tzinfo is None:
             return pytz.UTC.localize(o).isoformat()
@@ -57,7 +71,8 @@ date_formats: dict[int, list[str]] = {
 }
 
 
-def datetime_hook(doc: dict, *, add_tz: bool = False) -> dict:
+def datetime_hook(doc: dict, *, add_tz: bool = False) -> dict:  # noqa: ANON002 — json.loads object_hook receives arbitrary decoded objects
+    """object_hook that converts ISO-shaped string values in doc to datetime."""
     for k, v in doc.items():
         if not isinstance(v, str):
             continue

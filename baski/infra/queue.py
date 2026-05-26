@@ -1,9 +1,34 @@
-from typing import Any
+"""Pub/Sub topic + subscription + DLQ + alert-policy wiring for Pulumi stacks."""
+
+from typing import Any, NamedTuple
 
 import pulumi
 import pulumi_gcp as gcp
 
-__all__ = ["DEFAULT_SUBSCRIPTION_KWARGS", "create_subscription_with_push_and_dlq", "make_topic"]
+__all__ = [
+    "DEFAULT_SUBSCRIPTION_KWARGS",
+    "PubSubTopic",
+    "PushSubscription",
+    "create_subscription_with_push_and_dlq",
+    "make_topic",
+]
+
+
+class PubSubTopic(NamedTuple):
+    """A topic with its always-present debug subscription."""
+
+    topic: gcp.pubsub.Topic | None
+    debug_subscription: gcp.pubsub.Subscription | None
+
+
+class PushSubscription(NamedTuple):
+    """All resources created by :func:`create_subscription_with_push_and_dlq`."""
+
+    dlq_topic: gcp.pubsub.Topic | None
+    dlq_debug_subscription: gcp.pubsub.Subscription | None
+    subscription: gcp.pubsub.Subscription | None
+    alert_policy: gcp.monitoring.AlertPolicy | None
+
 
 is_pulumi = pulumi.runtime.is_dry_run() is not None
 
@@ -17,11 +42,10 @@ DEFAULT_SUBSCRIPTION_KWARGS: dict[str, Any] = {
 }
 
 
-def make_topic(
-    topic_name: str,
-) -> tuple[gcp.pubsub.Topic | None, gcp.pubsub.Subscription | None]:
+def make_topic(topic_name: str) -> PubSubTopic:
+    """Create a Pub/Sub topic and a debug subscription (returns (None, None) outside Pulumi)."""
     if not is_pulumi:
-        return None, None
+        return PubSubTopic(None, None)
     topic = gcp.pubsub.Topic(
         topic_name,
         name=topic_name,
@@ -33,13 +57,13 @@ def make_topic(
         topic=topic.name,
         **DEFAULT_SUBSCRIPTION_KWARGS,
     )
-    return topic, debug_subscription
+    return PubSubTopic(topic, debug_subscription)
 
 
 def _create_dlq_topic(
     topic_name: str,
     subscription_name: str,
-) -> tuple[gcp.pubsub.Topic, gcp.pubsub.Subscription, str]:
+) -> tuple[gcp.pubsub.Topic, gcp.pubsub.Subscription, str]:  # noqa: ANON001 — internal triple consumed by single call site
     dlq_topic_name = f"{topic_name}-{subscription_name}-dlq"
     dlq_topic = gcp.pubsub.Topic(
         dlq_topic_name,
@@ -55,7 +79,7 @@ def _create_dlq_topic(
     return dlq_topic, dlq_debug_subscription, dlq_topic_name
 
 
-def _create_push_subscription(
+def _create_push_subscription(  # noqa: PLR0913 — Pub/Sub subscription configuration legitimately takes many parameters
     topic_name: str,
     subscription_name: str,
     http_endpoint: str,
@@ -132,21 +156,17 @@ def _create_dlq_alert_policy(
     )
 
 
-def create_subscription_with_push_and_dlq(
+def create_subscription_with_push_and_dlq(  # noqa: PLR0913 — Pub/Sub subscription configuration legitimately takes many parameters
     topic_name: str,
     subscription_name: str,
     http_endpoint: str,
     service_account: gcp.serviceaccount.Account,
     notification_channels: list,
     backoff_max_seconds: int | None = None,
-) -> tuple[
-    gcp.pubsub.Topic | None,
-    gcp.pubsub.Subscription | None,
-    gcp.pubsub.Subscription | None,
-    gcp.monitoring.AlertPolicy | None,
-]:
+) -> PushSubscription:
+    """Provision a push subscription with a DLQ topic, debug subscription, and undelivered-message alert."""
     if not is_pulumi:
-        return None, None, None, None
+        return PushSubscription(None, None, None, None)
 
     dlq_topic, dlq_debug_subscription, dlq_topic_name = _create_dlq_topic(topic_name, subscription_name)
     subscription = _create_push_subscription(
@@ -163,4 +183,4 @@ def create_subscription_with_push_and_dlq(
         dlq_topic_name=dlq_topic_name,
         notification_channels=notification_channels,
     )
-    return dlq_topic, dlq_debug_subscription, subscription, alert_policy
+    return PushSubscription(dlq_topic, dlq_debug_subscription, subscription, alert_policy)

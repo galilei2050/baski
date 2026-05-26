@@ -1,3 +1,5 @@
+"""Text formatting helpers for Telegram messages."""
+
 from string import ascii_letters, digits
 
 __all__ = ["escape_text", "format_num", "normalize"]
@@ -6,12 +8,14 @@ _ALLOWED_CHARS = set(ascii_letters + digits + " ")
 
 
 def normalize(text: str | bytes | None) -> str:
+    """Lowercase and strip non-alphanumeric characters."""
     if not text:
         return ""
     return ("".join([ch for ch in str(text).strip().lower() if ch in _ALLOWED_CHARS])).replace("  ", " ")
 
 
 def escape_text(text: object) -> str:
+    """Escape MarkdownV2 special characters."""
     text = str(text)
     # https://core.telegram.org/bots/api#markdownv2-style
     for symbol in ["_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"]:
@@ -20,6 +24,7 @@ def escape_text(text: object) -> str:
 
 
 def format_num(number: float | None) -> str:
+    """Format a number with thousands separators and 2 decimals, MarkdownV2-escaped."""
     if not isinstance(number, (int, float)):
         return "null"
     return escape_text(f"{number:_.2f}".replace("_", " "))

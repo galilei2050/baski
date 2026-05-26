@@ -1,3 +1,5 @@
+"""Async server foundation: config loader, structured logger, lifecycle wrapper."""
+
 from .async_server import AsyncServer as AsyncServer
 from .config import AppConfig as AppConfig
 from .config import Config as Config

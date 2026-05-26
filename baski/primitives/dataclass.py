@@ -1,12 +1,14 @@
+"""Helpers for building dataclasses from external sources."""
+
 from dataclasses import fields, is_dataclass
-from typing import Any
 
 from google.cloud import firestore
 
 __all__ = ["from_doc"]
 
 
-def from_doc(klass: type, doc: firestore.DocumentSnapshot) -> Any:
+def from_doc[T](klass: type[T], doc: firestore.DocumentSnapshot) -> T:
+    """Instantiate klass from a Firestore document, dropping unknown fields."""
     if not is_dataclass(klass):
         raise TypeError("klass must be a dataclass")
     klass_fields = {f.name for f in fields(klass)}

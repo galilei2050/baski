@@ -1,3 +1,5 @@
+"""aiogram v3 server with polling and webhook modes."""
+
 import abc
 import argparse
 import asyncio
@@ -37,12 +39,15 @@ class TelegramServer(AsyncServer):
 
     @abc.abstractmethod
     def routers(self) -> Iterable[Router]:
+        """Return the routers to be mounted on the dispatcher."""
         raise NotImplementedError
 
     def outer_middlewares(self) -> Iterable[Any]:
+        """Return outer middlewares to attach to the message observer."""
         return []
 
     def fsm_storage(self) -> BaseStorage:
+        """Return the FSM storage backend (defaults to in-memory)."""
         return MemoryStorage()
 
     def add_webhook_routes(self, app: FastAPI) -> None:
@@ -50,10 +55,12 @@ class TelegramServer(AsyncServer):
 
     @cached_property
     def bot(self) -> Bot:
+        """Construct the `Bot` instance from the `--token` CLI arg."""
         return Bot(token=str(self.args["token"]))
 
     @cached_property
     def dp(self) -> Dispatcher:
+        """Construct the `Dispatcher`, wiring middlewares and routers."""
         dp = Dispatcher(storage=self.fsm_storage())
         for m in self.outer_middlewares():
             dp.message.outer_middleware(m)
@@ -62,11 +69,13 @@ class TelegramServer(AsyncServer):
         return dp
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Register CLI arguments for webhook URL and bot token."""
         super().add_arguments(parser)
         parser.add_argument("--webhook-path", default=str(get_env("WEBHOOK_URL", "")), help="Public webhook URL")
         parser.add_argument("--token", default=str(get_env("TELEGRAM_TOKEN", "")), help="Telegram bot token")
 
     def execute(self) -> int:
+        """Run the server in webhook or polling mode based on `--cloud`."""
         if self.args["cloud"]:
             return self._run_webhook()
         return self._run_polling()

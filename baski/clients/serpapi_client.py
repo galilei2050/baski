@@ -1,3 +1,5 @@
+"""Async client for SerpAPI search engines (Google, Yelp, Google Maps, App Stores)."""
+
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -10,6 +12,8 @@ __all__ = ["SerpApiClient"]
 
 
 class SerpApiClient:
+    """Thin wrapper around the SerpAPI REST API."""
+
     BASE_URL = "https://serpapi.com"
 
     def __init__(
@@ -17,11 +21,13 @@ class SerpApiClient:
         logger: Logger,
         http_client: httpx.AsyncClient,
     ) -> None:
+        """Read API key from env and stash the shared HTTP client and logger."""
         self._api_key = str(get_env("SERPAPI_API_KEY")).strip()
         self._http_client = http_client
         self._logger = logger
 
-    async def request(self, method: str, engine: str, **kwargs: Any) -> dict:
+    async def request(self, method: str, engine: str, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — httpx request kwargs are polymorphic; SerpAPI JSON response
+        """Issue an authenticated SerpAPI request and return JSON."""
         url = f"{self.BASE_URL}/search"
         params = kwargs.get("params", {})
         params["api_key"] = self._api_key
@@ -37,10 +43,12 @@ class SerpApiClient:
         response.raise_for_status()
         return response.json()
 
-    async def search_google(self, q: str) -> dict:
+    async def search_google(self, q: str) -> dict:  # noqa: ANON002 — SerpAPI JSON response, schema varies per engine
+        """Run a Google web search and return raw JSON."""
         return await self.request("GET", "google", params={"q": q, "gl": "us", "hl": "en"})
 
-    async def search_yelp(self, find_desc: str, find_loc: str) -> dict:
+    async def search_yelp(self, find_desc: str, find_loc: str) -> dict:  # noqa: ANON002 — SerpAPI JSON response, schema varies per engine
+        """Run a Yelp search by description and location."""
         return await self.request(
             "GET",
             "yelp",
@@ -50,22 +58,26 @@ class SerpApiClient:
             },
         )
 
-    async def search_google_play(self, q: str) -> dict:
+    async def search_google_play(self, q: str) -> dict:  # noqa: ANON002 — SerpAPI JSON response, schema varies per engine
+        """Search the Google Play store."""
         return await self.request("GET", "google_play", params={"q": q, "gl": "us", "hl": "en"})
 
-    async def search_apple_app_store(self, term: str, **kwargs: Any) -> dict:
+    async def search_apple_app_store(self, term: str, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — caller-supplied SerpAPI params; JSON response
+        """Search the Apple App Store for a term."""
         params = {"term": term, "country": "us", "device": "mobile", "num": "10"}
         params.update(kwargs)
 
         return await self.request("GET", "apple_app_store", params=params)
 
-    async def get_apple_product(self, product_id: str, **kwargs: Any) -> dict:
+    async def get_apple_product(self, product_id: str, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — caller-supplied SerpAPI params; JSON response
+        """Fetch Apple App Store product details by ID."""
         params = {"product_id": product_id, "country": "us", "type": "app"}
         params.update(kwargs)
 
         return await self.request("GET", "apple_product", params=params)
 
-    async def get_google_maps_reviews(self, data_id: str, amount: float | None = None, **kwargs: Any) -> dict:
+    async def get_google_maps_reviews(self, data_id: str, amount: float | None = None, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — caller-supplied SerpAPI params; JSON response
+        """Fetch Google Maps reviews for a place, paginating until ``amount`` reviews are collected."""
         if amount is None:
             amount = float("inf")
 
@@ -90,14 +102,16 @@ class SerpApiClient:
 
         return data
 
-    async def get_yelp_place(self, place_id: str, **kwargs: Any) -> dict:
+    async def get_yelp_place(self, place_id: str, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — caller-supplied SerpAPI params; JSON response
+        """Fetch Yelp place details by place_id."""
         params = {"place_id": place_id}
 
         params.update(kwargs)
 
         return await self.request("GET", "yelp_place", params=params)
 
-    async def get_yelp_reviews(self, place_id: str, amount: float | None = None, **kwargs: Any) -> dict:
+    async def get_yelp_reviews(self, place_id: str, amount: float | None = None, **kwargs: Any) -> dict:  # noqa: ANN401, PLR0915, ANON002 — caller-supplied SerpAPI params; pagination loop is the simplest expression; JSON response
+        """Fetch Yelp reviews for a place, paginating until ``amount`` reviews are collected."""
         if amount is None:
             amount = float("inf")
 
@@ -133,7 +147,8 @@ class SerpApiClient:
 
         return data
 
-    async def get_google_maps_place(self, place_id: str, **kwargs: Any) -> dict:
+    async def get_google_maps_place(self, place_id: str, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — caller-supplied SerpAPI params; JSON response
+        """Fetch Google Maps place details by place_id."""
         params = {"place_id": place_id, "type": "place", "hl": "en"}
         params.update(kwargs)
 

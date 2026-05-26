@@ -1,3 +1,5 @@
+"""Access log middleware: emits one info line per request in local mode."""
+
 import time
 
 from fastapi import FastAPI
@@ -11,10 +13,14 @@ __all__ = ["AccessLogMiddleware"]
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Log method, path, status, and duration for each request (local mode only)."""
+
     def __init__(self, app: FastAPI) -> None:
+        """Initialize the middleware with the FastAPI app."""
         super().__init__(app)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        """Run the request, then emit a single access log line in local mode."""
         if request.state.config.get("cloud"):
             return await call_next(request)
 

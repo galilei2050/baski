@@ -1,3 +1,5 @@
+"""Thin aiogram Router wrapper with FSM-clearing on commands."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -26,7 +28,8 @@ class Receptionist:
     Call `mount(dp)` once after registering handlers to attach the router to a `Dispatcher`.
     """
 
-    def __init__(self, debug: bool = False, logger: Logger | None = None) -> None:
+    def __init__(self, *, debug: bool = False, logger: Logger | None = None) -> None:
+        """Initialise the router and the command-clears-state outer middleware."""
         self._router = Router()
         self._debug = debug
         self._logger: Logger = logger or LocalLogger()
@@ -34,37 +37,55 @@ class Receptionist:
 
     @property
     def router(self) -> Router:
+        """Return the underlying aiogram `Router`."""
         return self._router
 
     def mount(self, dp: Dispatcher) -> None:
+        """Attach the router to the dispatcher."""
         dp.include_router(self._router)
 
-    def add_error_handler(self, callback: Callable[..., Awaitable[Any]], *filters: Any) -> None:
+    def add_error_handler(
+        self,
+        callback: Callable[..., Awaitable[Any]],
+        *filters: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
+    ) -> None:
+        """Register an error handler on the router."""
         self._router.errors.register(callback, *filters)
 
-    def add_pre_checkout_handler(self, callback: Callable[..., Awaitable[Any]], *filters: Any) -> None:
+    def add_pre_checkout_handler(
+        self,
+        callback: Callable[..., Awaitable[Any]],
+        *filters: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
+    ) -> None:
+        """Register a pre-checkout handler on the router."""
         self._router.pre_checkout_query.register(callback, *filters)
 
     def add_message_handler(
         self,
         callback: Callable[..., Awaitable[Any]],
-        *filters: Any,
+        *filters: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
         is_command: bool = False,
     ) -> None:
+        """Register a message handler; non-command handlers exclude `/`-prefixed text."""
         if is_command:
             self._router.message.register(callback, *filters)
         else:
             self._router.message.register(callback, ~F.text.startswith("/"), *filters)
 
-    def add_button_callback(self, callback: Callable[..., Awaitable[Any]], *filters: Any) -> None:
+    def add_button_callback(
+        self,
+        callback: Callable[..., Awaitable[Any]],
+        *filters: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
+    ) -> None:
+        """Register a callback-query handler on the router."""
         self._router.callback_query.register(callback, *filters)
 
     async def _clear_state_on_command(
         self,
-        handler: Callable[[types.TelegramObject, dict[str, Any]], Awaitable[Any]],
+        handler: Callable[[types.TelegramObject, dict[str, Any]], Awaitable[Any]],  # noqa: ANON002 — aiogram middleware contract
         event: types.TelegramObject,
-        data: dict[str, Any],
-    ) -> Any:
+        data: dict[str, Any],  # noqa: ANON002 — aiogram middleware context dict
+    ) -> Any:  # noqa: ANN401 — aiogram middleware/observer forwarding
         if isinstance(event, types.Message) and event.text and event.text.startswith("/"):
             state: FSMContext | None = data.get("state")
             if state is not None:

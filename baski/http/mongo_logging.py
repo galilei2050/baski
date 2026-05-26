@@ -1,3 +1,5 @@
+"""MongoDB command listener that emits structured per-query logs with timings."""
+
 import time
 from collections import OrderedDict
 
@@ -17,7 +19,7 @@ _SLOW_QUERY_MS = 200.0
 _MAX_IN_FLIGHT = 10_000
 
 
-def _extract_collection(*, command: dict, command_name: str) -> str:
+def _extract_collection(*, command: dict, command_name: str) -> str:  # noqa: ANON002 — pymongo CommandStartedEvent.command is raw BSON
     # For find/aggregate/insert/update/delete, command[command_name] is the
     # collection name (string). For admin commands like ping/buildInfo, it's
     # the int 1 — fall back to command_name itself so the label is meaningful.
@@ -31,7 +33,7 @@ def _extract_collection(*, command: dict, command_name: str) -> str:
     return command_name
 
 
-def _extract_filter(*, command: dict, command_name: str) -> dict:
+def _extract_filter(*, command: dict, command_name: str) -> dict:  # noqa: ANON002 — pymongo command is raw BSON; returned filter is arbitrary
     if command_name == "aggregate":
         for stage in command.get("pipeline") or []:
             if "$match" in stage:
@@ -40,7 +42,7 @@ def _extract_filter(*, command: dict, command_name: str) -> dict:
     return command.get("filter") or command.get("q") or {}
 
 
-def _extract_sort(*, command: dict, command_name: str) -> dict:
+def _extract_sort(*, command: dict, command_name: str) -> dict:  # noqa: ANON002 — pymongo command is raw BSON; returned sort spec is arbitrary
     if command_name == "aggregate":
         for stage in command.get("pipeline") or []:
             if "$sort" in stage:
@@ -49,7 +51,7 @@ def _extract_sort(*, command: dict, command_name: str) -> dict:
     return command.get("sort") or {}
 
 
-def _extract_stages(*, command: dict) -> list[str]:
+def _extract_stages(*, command: dict) -> list[str]:  # noqa: ANON002 — pymongo command is raw BSON
     # Compact one-line summary of an aggregation pipeline, e.g.
     # ["$match", "$lookup:customers", "$lookup:services", "$unwind:customer", "$sort"].
     # Looking at this list is usually enough to spot the unindexed-lookup
@@ -74,7 +76,7 @@ def _extract_stages(*, command: dict) -> list[str]:
     return out
 
 
-def _extract_projection_keys(*, command: dict, command_name: str) -> list[str]:
+def _extract_projection_keys(*, command: dict, command_name: str) -> list[str]:  # noqa: ANON002 — pymongo command is raw BSON
     if command_name == "aggregate":
         for stage in command.get("pipeline") or []:
             if "$project" in stage:
@@ -83,15 +85,15 @@ def _extract_projection_keys(*, command: dict, command_name: str) -> list[str]:
     return sorted((command.get("projection") or {}).keys())
 
 
-def _extract_n_returned(*, reply: dict) -> int:
+def _extract_n_returned(*, reply: dict) -> int:  # noqa: ANON002 — pymongo CommandSucceededEvent.reply is raw BSON
     cursor = reply.get("cursor")
     if cursor is not None:
         return len(cursor.get("firstBatch") or cursor.get("nextBatch") or [])
     return int(reply.get("n") or 0)
 
 
-def _build_labels(*, command: dict, command_name: str, duration_ms: float) -> dict:
-    labels: dict = {
+def _build_labels(*, command: dict, command_name: str, duration_ms: float) -> dict:  # noqa: ANON002 — pymongo command is raw BSON; labels dict is structured-logging payload
+    labels: dict = {  # noqa: ANON002 — structured-logging payload, intentionally polymorphic
         "collection": _extract_collection(command=command, command_name=command_name),
         "operation": command_name,
         "filter": _extract_filter(command=command, command_name=command_name),
@@ -114,17 +116,22 @@ def _build_labels(*, command: dict, command_name: str, duration_ms: float) -> di
 
 
 class MongoQueryLogger(CommandListener):
+    """Pymongo CommandListener that logs each command with timing and shape."""
+
     def __init__(self, *, logger: Logger) -> None:
+        """Initialize with the logger used to emit per-query records."""
         self._logger = logger
         # Maps request_id → (start_monotonic, command_dict, command_name)
         self._starts: OrderedDict[int, tuple[float, dict, str]] = OrderedDict()
 
     def started(self, event: CommandStartedEvent) -> None:
+        """Record the start time and command shape; evict oldest if cap exceeded."""
         self._starts[event.request_id] = (time.monotonic(), dict(event.command), event.command_name)
         while len(self._starts) > _MAX_IN_FLIGHT:
             self._starts.popitem(last=False)
 
     def succeeded(self, event: CommandSucceededEvent) -> None:
+        """Log a successful command with duration and result size."""
         start = self._starts.pop(event.request_id, None)
         if start is None:
             self._logger.warning("mongo.query missing started event", labels={"requestId": event.request_id})
@@ -141,6 +148,7 @@ class MongoQueryLogger(CommandListener):
             self._logger.info("mongo.query", labels=labels)
 
     def failed(self, event: CommandFailedEvent) -> None:
+        """Log a failed command with duration and failure detail."""
         start = self._starts.pop(event.request_id, None)
         if start is None:
             self._logger.warning("mongo.query missing started event", labels={"requestId": event.request_id})

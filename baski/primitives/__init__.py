@@ -1,3 +1,5 @@
+"""Small, dependency-light primitives reused across baski."""
+
 from . import datetime as datetime
 from .dataclass import from_doc
 from .name import fn_name, obj_name

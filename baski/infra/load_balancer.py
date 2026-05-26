@@ -1,13 +1,26 @@
+"""HTTPS load-balancer backend helpers wiring Cloud Run services into a NEG + BackendService."""
+
+from typing import NamedTuple
+
 import pulumi_gcp as gcp
 
-__all__ = ["make_cloud_run_backend"]
+__all__ = ["CloudRunBackend", "make_cloud_run_backend"]
+
+
+class CloudRunBackend(NamedTuple):
+    """Pair of compute resources fronting a Cloud Run service from an HTTPS load balancer."""
+
+    neg: gcp.compute.RegionNetworkEndpointGroup
+    backend_service: gcp.compute.BackendService
 
 
 def make_cloud_run_backend(
     name: str,
     service: gcp.cloudrunv2.Service,
+    *,
     compression: bool = False,
-) -> tuple[gcp.compute.RegionNetworkEndpointGroup, gcp.compute.BackendService]:
+) -> CloudRunBackend:
+    """Create a serverless NEG and BackendService for a Cloud Run service, optionally with CDN compression."""
     cloud_run_neg = gcp.compute.RegionNetworkEndpointGroup(
         f"compute-neg-for-cloud-run-{name}",
         network_endpoint_type="SERVERLESS",
@@ -32,4 +45,4 @@ def make_cloud_run_backend(
         load_balancing_scheme="EXTERNAL_MANAGED",
         cdn_policy=cdn_policy if compression else None,
     )
-    return cloud_run_neg, backend_service
+    return CloudRunBackend(cloud_run_neg, backend_service)

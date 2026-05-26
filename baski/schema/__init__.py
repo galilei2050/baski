@@ -1,3 +1,5 @@
+"""Marshmallow schema/field re-exports plus a few baski-specific field types."""
+
 from marshmallow import EXCLUDE as EXCLUDE
 from marshmallow import ValidationError as ValidationError
 from marshmallow.fields import UUID as UUID

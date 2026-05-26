@@ -1,9 +1,15 @@
+"""Cloud Run service provisioning helpers (secrets, repo SHA tagging, monitoring alerts)."""
+
+from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import git
 import pulumi_gcp as gcp
 
 __all__ = [
+    "CloudRunService",
+    "CloudRunServiceConfig",
     "create_cloud_run_secret_env",
     "create_cloud_run_with_monitoring",
     "repo_sha",
@@ -11,7 +17,34 @@ __all__ = [
 ]
 
 
+class CloudRunService(NamedTuple):
+    """Resources created by :func:`create_cloud_run_with_monitoring`."""
+
+    service: gcp.cloudrunv2.Service
+    alert_policy: gcp.monitoring.AlertPolicy
+    iam_member: gcp.cloudrun.IamMember | None
+
+
+@dataclass(frozen=True)
+class CloudRunServiceConfig:
+    """Bundle of options for :func:`create_cloud_run_with_monitoring`."""
+
+    service_name: str
+    image: str
+    envs: list
+    resources: gcp.cloudrunv2.ServiceTemplateContainerResourcesArgs
+    service_account_email: str
+    notification_channels: list
+    args: list | None = None
+    allow_unauthenticated: bool = False
+    location: str | None = None
+    ingress: str = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+    min_instances: int = 0
+    max_instances: int = 8
+
+
 def create_cloud_run_secret_env(secret_id: str, service_name: str) -> gcp.cloudrunv2.ServiceTemplateContainerEnvArgs:
+    """Return a Cloud Run env-var args object that resolves to the latest version of a Secret Manager secret."""
     secret = gcp.secretmanager.Secret.get(f"{service_name}_secret_{secret_id}", secret_id)
     return gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
         name=secret_id,
@@ -25,10 +58,12 @@ def create_cloud_run_secret_env(secret_id: str, service_name: str) -> gcp.cloudr
 
 
 def repo_sha(repo_path: str | Path = ".") -> str:
+    """Return the full HEAD commit SHA of the git repo containing ``repo_path``."""
     return git.Repo(str(repo_path), search_parent_directories=True).head.commit.hexsha
 
 
 def repo_short_sha(repo_path: str | Path = ".") -> str:
+    """Return the 7-character short HEAD commit SHA of the git repo containing ``repo_path``."""
     return repo_sha(repo_path)[:7]
 
 
@@ -73,56 +108,42 @@ def _create_5xx_alert_policy(service_name: str, notification_channels: list) -> 
     )
 
 
-def create_cloud_run_with_monitoring(  # noqa: PLR0913 — Cloud Run wrappers legitimately take many parameters
-    service_name: str,
-    image: str,
-    envs: list,
-    resources: gcp.cloudrunv2.ServiceTemplateContainerResourcesArgs,
-    service_account_email: str,
-    notification_channels: list,
-    args: list | None = None,
-    allow_unauthenticated: bool = False,
-    location: str | None = None,
-    ingress: str = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER",
-    min_instances: int = 0,
-    max_instances: int = 8,
-) -> tuple[gcp.cloudrunv2.Service, gcp.monitoring.AlertPolicy, gcp.cloudrun.IamMember | None]:
+def create_cloud_run_with_monitoring(config: CloudRunServiceConfig) -> CloudRunService:
+    """Create a Cloud Run v2 service with a 5xx alert policy and optional public-invoke IAM binding."""
+    location = config.location or gcp.config.region
     envs = [
         gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(name="GOOGLE_CLOUD_PROJECT", value=gcp.config.project),
-        gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
-            name="GOOGLE_CLOUD_REGION",
-            value=location or gcp.config.region,
-        ),
-        *envs,
+        gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(name="GOOGLE_CLOUD_REGION", value=location),
+        *config.envs,
     ]
     container_args = gcp.cloudrunv2.ServiceTemplateContainerArgs(
-        image=image,
-        args=args,
+        image=config.image,
+        args=config.args,
         envs=envs,
-        resources=resources,
+        resources=config.resources,
     )
     service = gcp.cloudrunv2.Service(
-        f"{service_name}-cloud-run-service",
-        name=service_name,
-        location=location or gcp.config.region,
-        ingress=ingress,
+        f"{config.service_name}-cloud-run-service",
+        name=config.service_name,
+        location=location,
+        ingress=config.ingress,
         template=gcp.cloudrunv2.ServiceTemplateArgs(
             scaling=gcp.cloudrunv2.ServiceTemplateScalingArgs(
-                min_instance_count=min_instances,
-                max_instance_count=max_instances,
+                min_instance_count=config.min_instances,
+                max_instance_count=config.max_instances,
             ),
-            service_account=service_account_email,
+            service_account=config.service_account_email,
             containers=[container_args],
         ),
     )
     iam_member = None
-    if allow_unauthenticated:
+    if config.allow_unauthenticated:
         iam_member = gcp.cloudrun.IamMember(
-            f"allow-unauthenticated-{service_name}-cloud-run-service",
+            f"allow-unauthenticated-{config.service_name}-cloud-run-service",
             service=service.name,
             location=service.location,
             role="roles/run.invoker",
             member="allUsers",
         )
-    error_alert_policy = _create_5xx_alert_policy(service_name, notification_channels)
-    return service, error_alert_policy, iam_member
+    error_alert_policy = _create_5xx_alert_policy(config.service_name, config.notification_channels)
+    return CloudRunService(service, error_alert_policy, iam_member)

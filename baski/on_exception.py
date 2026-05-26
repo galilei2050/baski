@@ -1,3 +1,5 @@
+"""Decorator that intercepts exceptions from async functions and routes them to a handler."""
+
 import asyncio
 import inspect
 import logging
@@ -13,20 +15,28 @@ __all__ = ["do_nothing", "do_nothing_sync", "on_exception"]
 _default_logger = logging.getLogger(__name__)
 
 
-async def do_nothing(exception: None, *args: typing.Any, **kwargs: typing.Any) -> None:
-    pass
+async def do_nothing(
+    exception: None,
+    *args: typing.Any,  # noqa: ANN401 — generic no-op handler that swallows any signature
+    **kwargs: typing.Any,  # noqa: ANN401 — generic no-op handler that swallows any signature
+) -> None:
+    """Async no-op handler used as the default for on_exception."""
 
 
-def do_nothing_sync(exception: None, *args: typing.Any, **kwargs: typing.Any) -> None:
-    pass
+def do_nothing_sync(
+    exception: None,
+    *args: typing.Any,  # noqa: ANN401 — generic no-op handler that swallows any signature
+    **kwargs: typing.Any,  # noqa: ANN401 — generic no-op handler that swallows any signature
+) -> None:
+    """Sync no-op handler counterpart to do_nothing."""
 
 
-def _log_handled_exception(
+def _log_handled_exception(  # noqa: PLR0913 — internal helper; all params load-bearing and called from a single site
     exc: BaseException,
     _logger: logging.Logger,
     name: str,
     args: tuple,
-    kwargs: dict,
+    kwargs: dict,  # noqa: ANON002 — wraps arbitrary user function
     warn_exceptions: tuple,
     skip_traceback_exceptions: tuple,
 ) -> None:
@@ -40,26 +50,29 @@ def _log_handled_exception(
         _logger.exception(msg)
 
 
-async def _invoke_handler(
+async def _invoke_handler(  # noqa: PLR0913 — internal helper called from a single site; all params load-bearing
     do: typing.Callable,
-    is_async: bool,
     args: tuple,
-    kwargs: dict,
+    kwargs: dict,  # noqa: ANON002 — wraps arbitrary user function
     exception: BaseException,
-) -> typing.Any:
+    *,
+    is_async: bool,
+) -> typing.Any:  # noqa: ANN401 — return value forwarded from arbitrary user handler
     if is_async:
         return await do(*args, exception=exception, **kwargs)
     return do(*args, exception=exception, **kwargs)
 
 
-def on_exception(
+def on_exception(  # noqa: PLR0913 — decorator factory; each option configures distinct behavior, grouping would hurt call-site readability
     do: typing.Callable = do_nothing,
     exceptions: type[BaseException] | tuple[type[BaseException], ...] = Exception,
     skip_traceback_exceptions: tuple = (),
     warn_exceptions: tuple = (),
     name: str | None = None,
-    logger: typing.Any = None,
+    logger: logging.Logger | None = None,
 ) -> typing.Callable:
+    """Wrap an async function so listed exceptions are logged and forwarded to do()."""
+
     def wrapper(fn: typing.Callable) -> typing.Callable:
         _name = name or fn_name(fn)
         assert inspect.iscoroutinefunction(fn), "Only async functions supported"  # noqa: S101 — decorator-time invariant; trips at import, never on user input
@@ -67,7 +80,10 @@ def on_exception(
         _logger = logger or _default_logger
 
         @wraps(fn)
-        async def inner(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
+        async def inner(
+            *args: typing.Any,  # noqa: ANN401 — wraps arbitrary user function
+            **kwargs: typing.Any,  # noqa: ANN401 — wraps arbitrary user function
+        ) -> typing.Any:  # noqa: ANN401 — return type mirrors wrapped function
             try:
                 ret_val = await fn(*args, **kwargs)
             except asyncio.CancelledError:

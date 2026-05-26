@@ -1,3 +1,5 @@
+"""Global FastAPI exception handlers: map downstream and runtime errors to JSON responses."""
+
 import asyncio
 import json
 from http import HTTPStatus
@@ -42,7 +44,7 @@ DOWNSTREAM_STATUS_MAPPING = {
 }
 
 
-async def request_body(request: Request) -> dict | str | None:
+async def request_body(request: Request) -> dict | str | None:  # noqa: ANON002 — FastAPI request JSON body, schema unknown
     body = None
     if request.method in ["POST", "PUT", "PATCH"]:
         try:
@@ -62,6 +64,7 @@ async def request_body(request: Request) -> dict | str | None:
 
 
 def timeout_exception_handler(request: Request, _exc: asyncio.TimeoutError) -> JSONResponse:
+    """Return 408 when a request handler exceeds its timeout."""
     logger = get_logger(request)
     logger.warning("Request timeout")
     return JSONResponse(
@@ -71,6 +74,7 @@ def timeout_exception_handler(request: Request, _exc: asyncio.TimeoutError) -> J
 
 
 async def http_exception_handler(request: Request, exc: HTTPStatusError) -> Response:
+    """Map an httpx downstream HTTP error onto our service status taxonomy."""
     config: AppConfig = request.state.config
     logger = get_logger(request)
     logger.warning(
@@ -111,6 +115,7 @@ async def http_exception_handler(request: Request, exc: HTTPStatusError) -> Resp
 
 
 def http_connection_exception_handler(request: Request, exc: ReadError | ConnectError) -> JSONResponse:
+    """Return 502 for downstream connection failures (read or connect errors)."""
     logger = get_logger(request)
     logger.warning(
         "Downstream HTTP connection error", labels={"exceptionType": type(exc).__name__, "exception": str(exc)}
@@ -128,6 +133,7 @@ def http_connection_exception_handler(request: Request, exc: ReadError | Connect
 
 
 async def runtime_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Return 500 for unhandled exceptions, logging the full traceback."""
     code = HTTPStatus.INTERNAL_SERVER_ERROR
     logger = get_logger(request)
     logger.error(
@@ -143,6 +149,7 @@ async def runtime_exception_handler(request: Request, exc: Exception) -> JSONRes
 
 
 async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
+    """Return 422 for Pydantic model validation errors."""
     logger = get_logger(request)
     logger.error(
         "Pydantic validation error",
@@ -160,6 +167,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
 
 
 async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Return 422 for FastAPI request-body validation errors."""
     logger = get_logger(request)
 
     logger.warning(
@@ -173,6 +181,7 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
 
 
 async def genai_api_exception_handler(request: Request, exc: GenAIAPIError) -> JSONResponse:
+    """Map a Google GenAI API error onto our service status taxonomy."""
     logger = get_logger(request)
     logger.warning(
         "GenAI API error",
@@ -194,6 +203,7 @@ async def genai_api_exception_handler(request: Request, exc: GenAIAPIError) -> J
 
 
 async def google_api_exception_handler(request: Request, exc: GoogleAPICallError) -> JSONResponse:
+    """Map a Google Cloud API error onto our service status taxonomy."""
     logger = get_logger(request)
     logger.error(
         "Google API error",

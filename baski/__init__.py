@@ -1,3 +1,5 @@
+"""Baski — shared foundational library: HTTP/Telegram server templates, logger, and reusable primitives."""
+
 from .concurrent import as_async, as_task, map_async
 from .env import get_env, is_cloud, is_debug, is_test, port, project_id, token
 from .http import dependencies as dependencies

@@ -1,9 +1,9 @@
-from typing import Any
+"""Helpers for deriving qualified names of callables and objects."""
 
 __all__ = ["fn_name", "obj_name"]
 
 
-def fn_name(fn: Any) -> str:
+def fn_name(fn: object) -> str:
     """Return the callable's dotted name including module."""
     parts = [fn.__module__]
     if hasattr(fn, "__qualname__"):
@@ -11,7 +11,7 @@ def fn_name(fn: Any) -> str:
     return ".".join(parts)
 
 
-def obj_name(obj: Any) -> str:
+def obj_name(obj: object) -> str:
     """Return the object's dotted class name including module."""
     parts = [obj.__module__]
     if hasattr(obj, "__class__"):

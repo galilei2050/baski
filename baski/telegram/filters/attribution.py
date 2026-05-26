@@ -1,11 +1,15 @@
+"""Filter that records `/start` deeplink attribution to Firestore and PubSub."""
+
 import base64
 from typing import Any, ClassVar
 from urllib.parse import parse_qsl
 
-import google.cloud.firestore as firestore
-import google.cloud.pubsub as pubsub
 from aiogram import types
 from aiogram.filters import BaseFilter
+from google.cloud import (
+    firestore,
+    pubsub,
+)
 
 from baski.schema import BigQueryDateTime, Integer, NotNullString, Schema, String, ValidationError
 
@@ -27,14 +31,21 @@ class Attribution(BaseFilter):
 
     @classmethod
     def setup_firestore(cls, collection: firestore.AsyncCollectionReference) -> None:
+        """Configure the Firestore collection used by all filter instances."""
         cls.collection = collection
 
     @classmethod
     def setup_pubsub(cls, topic: str, publisher: pubsub.PublisherClient) -> None:
+        """Configure the PubSub topic and publisher used by all filter instances."""
         cls.topic = topic
         cls.publisher = publisher
 
-    async def __call__(self, event: types.Message, **_: Any) -> bool:
+    async def __call__(
+        self,
+        event: types.Message,
+        **_: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
+    ) -> bool:
+        """Record the attribution payload (if any) and always pass the filter."""
         if not self.track or not isinstance(event, types.Message) or not event.text:
             return True
         if not event.text.startswith("/"):
@@ -46,12 +57,12 @@ class Attribution(BaseFilter):
         self._sink_to_pubsub(attribution_event)
         return True
 
-    async def _sink_to_firestore(self, event: dict) -> None:
+    async def _sink_to_firestore(self, event: dict) -> None:  # noqa: ANON002 — Firestore document payload, dynamic UTM fields
         if self.collection is None:
             return
         await self.collection.add(event)
 
-    def _sink_to_pubsub(self, event: dict) -> None:
+    def _sink_to_pubsub(self, event: dict) -> None:  # noqa: ANON002 — PubSub event payload, dynamic UTM fields
         if not self.topic or self.publisher is None:
             return
         event_data = attribution_event_schema.dumps(event).encode("utf-8")
@@ -83,7 +94,7 @@ attribution_event_schema = AttributionEventSchema()
 _DEEPLINK_PARTS = 2  # /start <base64-payload>
 
 
-def _get_attribution_object(message: types.Message) -> dict | None:
+def _get_attribution_object(message: types.Message) -> dict | None:  # noqa: ANON002 — marshmallow-loaded payload with dynamic UTM fields
     if not message.text or not message.from_user:
         return None
     parts = message.text.split(" ")
