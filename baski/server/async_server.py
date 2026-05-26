@@ -5,10 +5,12 @@ import asyncio
 import logging as local_logging
 import logging.config
 import signal
+import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property
 from sys import _current_frames
+from types import FrameType
 from typing import Any
 
 from google.cloud import firestore
@@ -24,21 +26,18 @@ __all__ = ["AsyncServer"]
 logger = local_logging.getLogger(__name__)
 
 
-def handler(signum: int, frame: Any) -> None:  # noqa: ARG001, ANN401 — signal.signal handler signature requires (int, FrameType|None) typed as Any here
-    print("====================================================\n")  # noqa: T201 — SIGINT stack-dump goes to stdout; logging may not be flushed
-    print("*** STACKTRACE - START ***")  # noqa: T201 — see above
-    code = []
+def handler(_signum: int, _frame: FrameType | None) -> None:
+    # Write directly to stderr — logging handlers may not have flushed when a signal fires.
+    out = ["====================================================\n", "*** STACKTRACE - START ***\n"]
     for thread_id, stack in _current_frames().items():
-        code.append(f"\n# ThreadID: {thread_id}")
+        out.append(f"\n# ThreadID: {thread_id}\n")
         for filename, lineno, name, line in traceback.extract_stack(stack):
-            code.append(f'File: "{filename}:{lineno}", in {name}')
+            out.append(f'File: "{filename}:{lineno}", in {name}\n')
             if line:
-                code.append(f"  {line.strip()}")
-
-    for line in code:
-        print(line)  # noqa: T201 — see above
-    print("\n*** STACKTRACE - END ***")  # noqa: T201 — see above
-    print("====================================================\n")  # noqa: T201 — see above
+                out.append(f"  {line.strip()}\n")
+    out.append("\n*** STACKTRACE - END ***\n")
+    out.append("====================================================\n")
+    sys.stderr.write("".join(out))
     raise KeyboardInterrupt
 
 
@@ -140,7 +139,7 @@ class AsyncServer:
         """Return the class name; used as a label in logs and argparse prog."""
         return self.__class__.__name__
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ARG002, ANN401 — CLI entry-point shim forwards arbitrary args; ignored by design
+    def __call__(self, *_args: Any, **_kwargs: Any) -> Any:  # noqa: ANN401 — CLI entry-point shim forwards arbitrary args
         """Make the instance callable so it can be used as a CLI entry point."""
         return self.run()
 

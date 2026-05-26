@@ -63,17 +63,17 @@ def port() -> EnvValue:
 
 def is_cloud() -> EnvValue:
     """Return the CLOUD env var, defaulting to False."""
-    return get_env("CLOUD", False)  # noqa: FBT003 — boolean default for env var with bool semantics
+    return get_env("CLOUD", default=False)
 
 
 def is_debug() -> EnvValue:
     """Return the DEBUG env var, defaulting to False."""
-    return get_env("DEBUG", False)  # noqa: FBT003 — boolean default for env var with bool semantics
+    return get_env("DEBUG", default=False)
 
 
 def is_test() -> EnvValue:
     """Return the TEST env var, defaulting to False."""
-    return get_env("TEST", False)  # noqa: FBT003 — boolean default for env var with bool semantics
+    return get_env("TEST", default=False)
 
 
 def project_id() -> EnvValue:

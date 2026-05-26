@@ -75,7 +75,8 @@ def on_exception(  # noqa: PLR0913 — decorator factory; each option configures
 
     def wrapper(fn: typing.Callable) -> typing.Callable:
         _name = name or fn_name(fn)
-        assert inspect.iscoroutinefunction(fn), "Only async functions supported"  # noqa: S101 — decorator-time invariant; trips at import, never on user input
+        if not inspect.iscoroutinefunction(fn):
+            raise TypeError(f"on_exception supports async functions only, got {_name}")
         is_do_async = inspect.iscoroutinefunction(do)
         _logger = logger or _default_logger
 
