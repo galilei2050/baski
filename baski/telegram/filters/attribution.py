@@ -1,63 +1,59 @@
-import typing
 import base64
+from typing import Any, ClassVar
 from urllib.parse import parse_qsl
-from aiogram import filters, types
-from google.cloud import firestore
-from google.cloud import pubsub
 
-from baski.schema import NotNullString, BigQueryDateTime, Schema, String, Integer, ValidationError
+from aiogram import types
+from aiogram.filters import BaseFilter
+from google.cloud import firestore, pubsub
 
-__all__ = ['Attribution']
+from baski.schema import BigQueryDateTime, Integer, NotNullString, Schema, String, ValidationError
+
+__all__ = ["Attribution"]
 
 
-class Attribution(filters.Filter):
-    collection = None
-    topic = None
-    publisher = None
+class Attribution(BaseFilter):
+    """Records the /start command payload (base64-encoded UTM string) to Firestore and PubSub.
 
-    def __init__(self, track: bool = False):
-        self.track = track
+    Always passes. Set `track=True` only on the entry-point command; configure sinks once via
+    `Attribution.setup_firestore(...)` and `Attribution.setup_pubsub(...)`.
+    """
 
-    async def check(self, *args) -> bool:
-        if not isinstance(args, tuple) or not len(args) < 2 or not isinstance(args[0], types.Message):
-            return True
-        if not self.track:
-            return True
-        message: types.Message = args[0]
-        if not message.is_command():
-            return True
-        attribution_event = _get_attribution_object(message)
-        if not attribution_event:
-            return True
+    collection: ClassVar[firestore.AsyncCollectionReference | None] = None
+    topic: ClassVar[str | None] = None
+    publisher: ClassVar[pubsub.PublisherClient | None] = None
 
-        await self.sink_to_firestore(attribution_event)
-        self.sink_to_pubsub(attribution_event)
-        return True
+    track: bool = False
 
     @classmethod
-    def validate(cls, full_config: typing.Dict[str, typing.Any]) -> typing.Optional[typing.Dict[str, typing.Any]]:
-        if full_config.pop('track_attribution', False):
-            return {"track": True}
-        return {}
-
-    @classmethod
-    def setup_firestore(cls, collection: firestore.AsyncCollectionReference):
+    def setup_firestore(cls, collection: firestore.AsyncCollectionReference) -> None:
         cls.collection = collection
 
     @classmethod
-    def setup_pubsub(cls, topic: str, publisher: pubsub.PublisherClient):
+    def setup_pubsub(cls, topic: str, publisher: pubsub.PublisherClient) -> None:
         cls.topic = topic
         cls.publisher = publisher
 
-    async def sink_to_firestore(self, event: typing.Dict):
-        if not self.collection:
+    async def __call__(self, event: types.Message, **_: Any) -> bool:
+        if not self.track or not isinstance(event, types.Message) or not event.text:
+            return True
+        if not event.text.startswith("/"):
+            return True
+        attribution_event = _get_attribution_object(event)
+        if not attribution_event:
+            return True
+        await self._sink_to_firestore(attribution_event)
+        self._sink_to_pubsub(attribution_event)
+        return True
+
+    async def _sink_to_firestore(self, event: dict) -> None:
+        if self.collection is None:
             return
         await self.collection.add(event)
 
-    def sink_to_pubsub(self, event: typing.Dict):
-        if not self.topic or not self.publisher:
+    def _sink_to_pubsub(self, event: dict) -> None:
+        if not self.topic or self.publisher is None:
             return
-        event_data = attribution_event_schema.dumps(event).encode('utf-8')
+        event_data = attribution_event_schema.dumps(event).encode("utf-8")
         self.publisher.publish(self.topic, event_data)
 
 
@@ -72,25 +68,28 @@ class AttributionEventSchema(Schema):
 
 
 class AttributionDataSchema(Schema):
-    source = String(data_key='s')
-    medium = String(data_key='m')
-    campaign = String(data_key='c')
-    content = String(data_key='cnt')
-    term = String(data_key='t')
+    source = String(data_key="s")
+    medium = String(data_key="m")
+    campaign = String(data_key="c")
+    content = String(data_key="cnt")
+    term = String(data_key="t")
 
 
 attribution_data_schema = AttributionDataSchema()
 attribution_event_schema = AttributionEventSchema()
 
-def _get_attribution_object(message: types.Message):
-    parts = message.text.split(' ')
-    if not len(parts) == 2:
+
+def _get_attribution_object(message: types.Message) -> dict | None:
+    if not message.text or not message.from_user:
+        return None
+    parts = message.text.split(" ")
+    if len(parts) != 2:
         return None
     try:
-        cgi_string = base64.standard_b64decode(parts[1]).decode('utf-8')
+        cgi_string = base64.standard_b64decode(parts[1]).decode("utf-8")
         data = attribution_data_schema.load(dict(parse_qsl(cgi_string)))
-        data['timestamp'] = message.date
-        data['user_id'] = message.from_user.id
+        data["timestamp"] = message.date
+        data["user_id"] = message.from_user.id
         return data
     except (ValidationError, ValueError):
         return None

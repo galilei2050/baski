@@ -1,13 +1,14 @@
 from abc import ABCMeta
+from typing import Any, ClassVar
 
-from tornado.web import HTTPError
+__all__ = ["ClassFactory"]
 
 
-class ClassFactory(object, metaclass=ABCMeta):
-    _heirs = {}
+class ClassFactory(metaclass=ABCMeta):  # noqa: B024 — base for subclass auto-registration via __init_subclass__; abstract methods would defeat the purpose
+    _heirs: ClassVar[dict[str, type]] = {}
 
     @classmethod
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
 
         name = cls.__qualname__.lower()
@@ -16,8 +17,8 @@ class ClassFactory(object, metaclass=ABCMeta):
         cls._heirs[name] = cls
 
     @classmethod
-    def construct(cls, name, *args, **kwargs):
-        Constructor = cls._heirs.get(name.lower(), None)
-        if Constructor is None:
-            raise HTTPError(404, f"Class {name} is not implemented")
-        return Constructor(*args, **kwargs)
+    def construct(cls, name: str, *args: Any, **kwargs: Any) -> Any:
+        constructor = cls._heirs.get(name.lower(), None)
+        if constructor is None:
+            raise RuntimeError(404, f"Class {name} is not implemented")
+        return constructor(*args, **kwargs)

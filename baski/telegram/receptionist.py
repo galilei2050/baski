@@ -1,85 +1,79 @@
-import aiogram
 import logging
-import inspect
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters import Text, StateFilter, Filter, BoundFilter
+from aiogram import Dispatcher, F, Router, types
+from aiogram.fsm.context import FSMContext
+
+__all__ = ["Receptionist"]
 
 
-class Receptionist(object):
+class Receptionist:
+    """Thin wrapper over an aiogram v3 `Router` that wires:
 
-    def __init__(
-            self,
-            dp: aiogram.Dispatcher,
-            debug: False,
-    ):
-        self._dp = dp
+    - a "command resets state" outer-middleware on the message observer: any text starting with `/`
+      clears the current FSM state before downstream handlers run.
+    - non-command vs command split for `add_message_handler`: handlers without an explicit command
+      filter only receive non-command messages.
+
+    Call `mount(dp)` once after registering handlers to attach the router to a `Dispatcher`.
+    """
+
+    def __init__(self, debug: bool = False) -> None:
+        self._router = Router()
         self._debug = debug
-        self._error_handler = None
-        self._setup_handlers()
+        self._router.message.outer_middleware(_clear_state_on_command)
 
-    def _setup_handlers(self):
-        self._dp.register_message_handler(self._clear_state, Text(startswith="/") & AnyStateFilter(self._dp), state='*')
+    @property
+    def router(self) -> Router:
+        return self._router
 
-    async def _clear_state(self, *args, state: FSMContext = None, **kwargs):
-        '''
-        Special handler to clear state, so that command execution overrides the current state.
-        Example: we ask the user to enter a token, but he changed his mind and enters another command.
-        '''
-        try:
-            await state.finish()
-        except KeyError:
-            logging.warning("State does not found in storage")
-        StateFilter.ctx_state.set(None)
-        await self._dp.process_update(aiogram.types.Update.get_current())
+    def mount(self, dp: Dispatcher) -> None:
+        dp.include_router(self._router)
 
-    def _check_callback(self, callback):
-        spec = inspect.getfullargspec(callback)
-        assert spec.varkw is not None, "Callback must have **kwargs argument"
+    def add_error_handler(
+        self,
+        callback: Callable[..., Awaitable[Any]],
+        *filters: Any,
+    ) -> None:
+        self._router.errors.register(callback, *filters)
 
-    def add_error_handler(self, callback,  *custom_filters, **kwargs):
-        self._dp.register_errors_handler(callback, *custom_filters, **kwargs)
+    def add_pre_checkout_handler(
+        self,
+        callback: Callable[..., Awaitable[Any]],
+        *filters: Any,
+    ) -> None:
+        self._router.pre_checkout_query.register(callback, *filters)
 
-    def add_pre_checkout_handler(self, callback, *custom_filters, **kwargs):
-        self._dp.register_pre_checkout_query_handler(callback, *custom_filters, **kwargs)
+    def add_message_handler(
+        self,
+        callback: Callable[..., Awaitable[Any]],
+        *filters: Any,
+        is_command: bool = False,
+    ) -> None:
+        if is_command:
+            self._router.message.register(callback, *filters)
+        else:
+            self._router.message.register(callback, ~F.text.startswith("/"), *filters)
 
-    def add_message_handler(self, callback, *custom_filters, **kwargs):
-        '''
-        We add special handler to clear state, so that command execution overrides the current state.
-        Example: we ask the user to enter a token, but he changed his mind and enters another command.
-        '''
-        self._check_callback(callback)
-        if not self._debug:
-            callback = self._dp.async_task(callback)
-
-        if 'commands' not in kwargs:
-            self._dp.register_message_handler(callback,~Text(startswith="/"), *custom_filters, **kwargs)
-            return
-
-        self._dp.register_message_handler(callback, *custom_filters, **kwargs)
-
-    def add_button_callback(self, callback, *custom_filters, **kwargs):
-        self._check_callback(callback)
-        if not self._debug:
-            callback = self._dp.async_task(callback)
-
-        self._dp.register_callback_query_handler(callback, *custom_filters, **kwargs)
+    def add_button_callback(
+        self,
+        callback: Callable[..., Awaitable[Any]],
+        *filters: Any,
+    ) -> None:
+        self._router.callback_query.register(callback, *filters)
 
 
-class AnyStateFilter(Filter):
-
-    def __init__(self, dp):
-        self.dp = dp
-
-    def get_target(self, obj):
-        if isinstance(obj, aiogram.types.CallbackQuery):
-            return getattr(getattr(getattr(obj, 'message', None), 'chat', None), 'id', None), getattr(getattr(obj, 'from_user', None), 'id', None)
-        return getattr(getattr(obj, 'chat', None), 'id', None), getattr(getattr(obj, 'from_user', None), 'id', None)
-
-    async def check(self, obj) -> bool:
-        chat, user = self.get_target(obj)
-        if chat or user:
-            state = await self.dp.storage.get_state(chat=chat, user=user)
-            if state:
-                return {'any_state': True}
-        return False
+async def _clear_state_on_command(
+    handler: Callable[[types.Message, dict[str, Any]], Awaitable[Any]],
+    event: types.Message,
+    data: dict[str, Any],
+) -> Any:
+    if event.text and event.text.startswith("/"):
+        state: FSMContext | None = data.get("state")
+        if state is not None:
+            try:
+                await state.clear()
+            except KeyError:
+                logging.warning("State not found in storage")
+    return await handler(event, data)
