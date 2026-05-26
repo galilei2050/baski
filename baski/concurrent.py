@@ -17,6 +17,7 @@ async def map_async(
     array: list[typing.Any],
     async_fn: typing.Callable,
     *args: typing.Any,
+    timeout: float = 60,  # noqa: ASYNC109 — interface contract; wait timeout is internal, not a deadline forwarded to async_fn
     **kwargs: typing.Any,
 ) -> list:
     backlog = list(array)
@@ -25,7 +26,7 @@ async def map_async(
         tasks = [asyncio.create_task(async_fn(item, *args, **kwargs)) for item in backlog[: concurrency()]]
         backlog = backlog[concurrency() :]
 
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED, timeout=kwargs.get("timeout", 60))
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED, timeout=timeout)
         if pending:
             raise RuntimeError(HTTPStatus.INTERNAL_SERVER_ERROR, "Map async timeout")
 

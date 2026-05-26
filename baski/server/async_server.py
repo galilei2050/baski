@@ -79,12 +79,6 @@ class AsyncServer:
         return LocalLogger()
 
     @cached_property
-    def loop(self) -> asyncio.AbstractEventLoop:
-        loop = asyncio.get_event_loop()
-        loop.set_default_executor(self.loop_executor)
-        return loop
-
-    @cached_property
     def loop_executor(self) -> ThreadPoolExecutor:
         # Default to 64 threads for I/O-bound operations (GCS uploads, etc.)
         return ThreadPoolExecutor(max_workers=self.config.concurrency or 64)
@@ -113,16 +107,23 @@ class AsyncServer:
             cfg[a] = self.args[a]
         return cfg
 
-    def check_config(self) -> None:
-        # Check config every 5 minutes
-        self.loop.call_later(300, self.check_config)
-        try:
-            if self.config.load_db(firestore.Client()):
-                logger.critical("Config update detected. Stop")
-                signal.raise_signal(signal.SIGTERM)
-            logger.debug("Config is the same.")
-        except Exception as error:  # noqa: BLE001 — periodic config refresh must never tear down the server; warn and keep running
-            logger.warning("An error occurred when updating the config - %s", error)
+    async def check_config_periodically(self, interval_seconds: float = 300) -> None:
+        """Background task: poll Firestore for config updates, SIGTERM on change.
+
+        Must be scheduled on the running loop (e.g. via asyncio.create_task in an async
+        lifespan), so the running loop actually executes it.
+        """
+        client = firestore.Client()
+        while True:
+            await asyncio.sleep(interval_seconds)
+            try:
+                if self.config.load_db(client):
+                    logger.critical("Config update detected. Stop")
+                    signal.raise_signal(signal.SIGTERM)
+                    return
+                logger.debug("Config is the same.")
+            except Exception as error:  # noqa: BLE001 — periodic config refresh must never tear down the server; warn and keep running
+                logger.warning("An error occurred when updating the config - %s", error)
 
     @property
     def name(self) -> str:
@@ -141,8 +142,6 @@ class AsyncServer:
                 logger.info("Dry run of %s complete", self.name)
                 return 0
 
-            if self.args["cloud"]:
-                self.loop.call_later(1, self.check_config)
             with self.loop_executor:
                 return self.execute()
         except KeyboardInterrupt:
@@ -153,8 +152,4 @@ class AsyncServer:
         return 1
 
     def execute(self) -> int:
-        try:
-            self.loop.run_forever()
-            return 0
-        finally:
-            self.loop.close()
+        raise NotImplementedError("Subclass must implement execute()")

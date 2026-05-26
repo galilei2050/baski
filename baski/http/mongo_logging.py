@@ -1,4 +1,5 @@
 import time
+from collections import OrderedDict
 
 from pymongo.monitoring import CommandFailedEvent, CommandListener, CommandStartedEvent, CommandSucceededEvent
 
@@ -11,6 +12,9 @@ __all__ = ["MongoQueryLogger"]
 # slow=True. A typical IXSCAN find is single-digit ms; over 200ms is worth
 # eyeballing. Adjust if the noise floor shifts.
 _SLOW_QUERY_MS = 200.0
+# Cap on in-flight command tracking. Orphaned entries (connection dropped between
+# started/succeeded) would otherwise leak forever; evict oldest beyond this.
+_MAX_IN_FLIGHT = 10_000
 
 
 def _extract_collection(*, command: dict, command_name: str) -> str:
@@ -113,10 +117,12 @@ class MongoQueryLogger(CommandListener):
     def __init__(self, *, logger: Logger) -> None:
         self._logger = logger
         # Maps request_id → (start_monotonic, command_dict, command_name)
-        self._starts: dict[int, tuple[float, dict, str]] = {}
+        self._starts: OrderedDict[int, tuple[float, dict, str]] = OrderedDict()
 
     def started(self, event: CommandStartedEvent) -> None:
         self._starts[event.request_id] = (time.monotonic(), dict(event.command), event.command_name)
+        while len(self._starts) > _MAX_IN_FLIGHT:
+            self._starts.popitem(last=False)
 
     def succeeded(self, event: CommandSucceededEvent) -> None:
         start = self._starts.pop(event.request_id, None)

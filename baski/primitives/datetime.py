@@ -39,16 +39,13 @@ def is_today(time_point: datetime) -> bool:
 
 
 def as_local(d: datetime) -> datetime:
-    if d.tzinfo is not None:
-        return d
     return d.astimezone()
 
 
 def as_utc(d: datetime) -> datetime:
-    if d.tzinfo is not None:
-        return d
-
-    return pytz.UTC.localize(d)
+    if d.tzinfo is None:
+        return pytz.UTC.localize(d)
+    return d.astimezone(UTC)
 
 
 def to_utc(d: datetime) -> datetime:

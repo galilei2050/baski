@@ -1,5 +1,5 @@
 import asyncio
-import sys
+import json
 from http import HTTPStatus
 from json import JSONDecodeError
 from typing import TYPE_CHECKING
@@ -53,7 +53,10 @@ async def request_body(request: Request) -> dict | str | None:
                 body = body.decode("utf-8")
         except ValueError:
             pass
-    if body and isinstance(body, (dict, str)) and sys.getsizeof(body) < 1024 * 1024:
+    if not body:
+        return None
+    encoded_size = len(body.encode("utf-8")) if isinstance(body, str) else len(json.dumps(body, default=str))
+    if encoded_size < 1024 * 1024:
         return body
     return None
 

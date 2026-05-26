@@ -55,7 +55,14 @@ class FastAPIServer(AsyncServer):
             async with self as resources:
                 scheme = "http" if self.args["cloud"] else "https"
                 logger.warning("Server ready: %s://0.0.0.0:%s", scheme, self.args["port"])
-                yield resources
+                config_refresh: asyncio.Task[None] | None = None
+                if self.args["cloud"]:
+                    config_refresh = asyncio.create_task(self.check_config_periodically())
+                try:
+                    yield resources
+                finally:
+                    if config_refresh is not None:
+                        config_refresh.cancel()
 
         app = FastAPI(lifespan=lifespan, openapi_url="/docs/openapi.json")
 

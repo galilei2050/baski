@@ -11,7 +11,7 @@ class UnavailableError(Exception):
 
 
 def wait_time_function(
-    e: Exception,  # noqa: ARG001 — part of the wait_time_fn public protocol; custom strategies may inspect the exception
+    _e: Exception,
     i: int,
     min_wait_ms: int,
     max_wait_ms: int,
@@ -26,16 +26,16 @@ async def retry(
     min_wait_ms: int = 100,
     max_wait_ms: int = 1000,
     service_name: str | None = None,
-    wait_time_fn: typing.Callable = wait_time_function,  # noqa: ARG001 — kwarg accepted for caller override; current body still uses the module default
+    wait_time_fn: typing.Callable = wait_time_function,
     logger: logging.Logger | None = None,
     **kwargs: typing.Any,
 ) -> typing.Any:
     exceptions = tuple(exceptions)
-    for i in range(1, times):
+    for i in range(1, times + 1):
         try:
             return await do(**kwargs)
         except exceptions as e:
-            wait_time = wait_time_function(e, i, min_wait_ms, max_wait_ms)
+            wait_time = wait_time_fn(e, i, min_wait_ms, max_wait_ms)
             _logger = logger or logging.getLogger(__name__)
             _logger.warning(f"Got exception {type(e)}: '{e}'. retry after {wait_time / 1000} seconds")
             await asyncio.sleep(wait_time / 1000)

@@ -76,7 +76,7 @@ class TelegramServer(AsyncServer):
             await self.bot.delete_webhook(drop_pending_updates=False)
             await self.dp.start_polling(self.bot)
 
-        self.loop.run_until_complete(main())
+        asyncio.run(main())
         return 0
 
     def _run_webhook(self) -> int:

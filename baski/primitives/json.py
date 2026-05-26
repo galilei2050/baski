@@ -35,12 +35,12 @@ def dumpf(data: Any, file_path: str | Path) -> None:
     Path(file_path).write_text(dumps(data))
 
 
-def convert_date(o: Any) -> str | None:
+def convert_date(o: Any) -> str:
     if isinstance(o, datetime):
         if o.tzinfo is None:
             return pytz.UTC.localize(o).isoformat()
-        return pytz.UTC.normalize(o).isoformat()
-    return None
+        return o.astimezone(pytz.UTC).isoformat()
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
 
 date_formats: dict[int, list[str]] = {

@@ -24,16 +24,13 @@ class EnvValue:
         return int(self._value)
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, str):
-            return self._value == other
-
         if isinstance(other, bool):
             return bool(self) == other
-
+        if isinstance(other, str):
+            return self._value == other
         if isinstance(other, (int, float)):
             return self._value == str(other)
-
-        raise ValueError(f"Equal operator for type {type(other)} is not supported")
+        return NotImplemented
 
     def __hash__(self) -> int:
         return hash(self._value)

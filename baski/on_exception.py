@@ -68,13 +68,11 @@ def on_exception(
 
         @wraps(fn)
         async def inner(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
-            ret_val = None
             try:
                 ret_val = await fn(*args, **kwargs)
             except asyncio.CancelledError:
-                _logger.warning(f"Coroutine {_name} was cancelled. Live is different", _name)
-            except (SystemExit, KeyboardInterrupt, GeneratorExit):
-                raise
+                _logger.warning("Coroutine %s was cancelled.", _name)
+                return None
             except exceptions as e:
                 _log_handled_exception(
                     exc=e,
@@ -92,10 +90,9 @@ def on_exception(
                     kwargs=kwargs,
                     exception=e,
                 )
-            finally:
-                if isinstance(ret_val, Exception):
-                    raise ret_val
-                return ret_val  # noqa: B012 — intentional: handler may have replaced ret_val and we must surface it even when finally runs after a re-raise
+            if isinstance(ret_val, Exception):
+                raise ret_val
+            return ret_val
 
         return inner
 
