@@ -1,7 +1,7 @@
 """Abstract base class for all agent tools."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 from anthropic.types import ToolParam
 
@@ -9,10 +9,10 @@ from anthropic.types import ToolParam
 class Tool(ABC):
     """Base class for all agent tools."""
 
-    name: str
-    one_line: str
-    description: str
-    input_schema: Any
+    name: ClassVar[str]
+    one_line: ClassVar[str]
+    description: ClassVar[str]
+    input_schema: ClassVar[Any]
 
     def __hash__(self) -> int:
         """Hash by tool name for use in sets and dicts."""

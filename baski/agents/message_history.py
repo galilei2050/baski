@@ -52,9 +52,16 @@ class MessageHistory:
             self.turns.append(self._current_turn)
         self._current_turn = None
 
+    @property
+    def _turn(self) -> Turn:
+        """Return the active turn, raising if used outside the context manager."""
+        if self._current_turn is None:
+            raise RuntimeError("No active turn; use MessageHistory as a context manager first")
+        return self._current_turn
+
     def add_assistant(self, content_blocks: list[ContentBlock]) -> None:
         """Append an assistant message with the given content blocks to the current turn."""
-        self._current_turn.messages.append(
+        self._turn.messages.append(
             MessageParam(
                 role="assistant",
                 content=content_blocks,
@@ -63,7 +70,7 @@ class MessageHistory:
 
     def add_tool_results(self, results: list[ToolResultBlockParam]) -> None:
         """Append a user message containing tool results to the current turn."""
-        self._current_turn.messages.append(
+        self._turn.messages.append(
             MessageParam(
                 role="user",
                 content=results,
@@ -72,7 +79,7 @@ class MessageHistory:
 
     def add_user_text(self, text: str) -> None:
         """Append a plain-text user message to the current turn."""
-        self._current_turn.messages.append(
+        self._turn.messages.append(
             MessageParam(
                 role="user",
                 content=[TextBlockParam(type="text", text=text)],

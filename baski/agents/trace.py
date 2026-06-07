@@ -3,7 +3,7 @@
 import gzip
 import time
 import uuid
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from anthropic.types import Message, MessageParam, TextBlock, ThinkingBlock, ToolResultBlockParam, ToolUseBlock
 from google.api_core.exceptions import GoogleAPIError
@@ -82,7 +82,10 @@ class TurnRecord(BaseModel):
             serialized.append(
                 SerializedMessage(
                     role=msg["role"],
-                    content=[item.model_dump() if isinstance(item, BaseModel) else item for item in items],
+                    content=cast(
+                        "list[SerializedMessageContent | str]",
+                        [item.model_dump() if isinstance(item, BaseModel) else item for item in items],
+                    ),
                 )
             )
         return serialized
@@ -128,12 +131,19 @@ class TraceCollector:
         )
         self._turn_start = time.monotonic()
 
+    @property
+    def _turn(self) -> TurnRecord:
+        """Return the active turn, raising if no turn is in progress."""
+        if self._current_turn is None:
+            raise RuntimeError("No active turn; call start_turn first")
+        return self._current_turn
+
     def record_response(self, message: Message, api_duration_ms: int) -> None:
         """Record the API response content into the current turn."""
-        turn = self._current_turn
+        turn = self._turn
         turn.input_tokens = message.usage.input_tokens
         turn.output_tokens = message.usage.output_tokens
-        turn.stop_reason = message.stop_reason
+        turn.stop_reason = message.stop_reason or ""
 
         for block in message.content:
             if isinstance(block, ThinkingBlock):
@@ -152,7 +162,7 @@ class TraceCollector:
 
     def record_tool_results(self, tool_results: list[ToolResultBlockParam], timings: dict[str, int]) -> None:
         """Record tool execution results into the current turn."""
-        turn = self._current_turn
+        turn = self._turn
         for result in tool_results:
             tool_use_id = result["tool_use_id"]
             content = result.get("content", "")
@@ -176,8 +186,9 @@ class TraceCollector:
 
     def end_turn(self) -> None:
         """Finalize the current turn and add it to the trace."""
-        self._current_turn.duration_ms = int((time.monotonic() - self._turn_start) * 1000)
-        self._turns.append(self._current_turn)
+        turn = self._turn
+        turn.duration_ms = int((time.monotonic() - self._turn_start) * 1000)
+        self._turns.append(turn)
         self._current_turn = None
 
     async def finalize(
@@ -204,7 +215,7 @@ class TraceCollector:
                 result=self._result,
                 error=self._error,
             )
-            json_bytes = json.dumps(record.model_dump(), indent=None, sort_keys=False).encode()
+            json_bytes = json.dumps(record.model_dump(), sort_keys=False).encode()
             compressed = gzip.compress(json_bytes)
 
             blob_name = f"{TRACES_PREFIX}{self.id}.json.gz"

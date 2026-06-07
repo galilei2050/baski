@@ -6,7 +6,7 @@ from typing import NamedTuple
 
 from anthropic import APIError as AnthropicAPIError
 from anthropic import APIStatusError, AsyncAnthropic
-from anthropic.types import Message, MessageParam, TextBlock, TextBlockParam, ThinkingBlock, ToolUseBlock
+from anthropic.types import ContentBlock, Message, MessageParam, TextBlock, TextBlockParam, ThinkingBlock, ToolUseBlock
 from pymongo.asynchronous.database import AsyncDatabase
 
 from baski.primitives import datetime
@@ -102,7 +102,7 @@ class Agent:
             try:
                 async with self.anthropic_client.messages.stream(
                     messages=messages,
-                    **self.params,
+                    **self.params,  # type: ignore[arg-type]  # params is a dynamic dict merged with caller overrides
                 ) as stream:
                     return await stream.get_final_message()
             except APIStatusError as e:
@@ -124,7 +124,7 @@ class Agent:
 
         raise RuntimeError("Unreachable: retry loop exited without return or raise")
 
-    def _parse_response(self, content_blocks: list[object]) -> ParsedResponse:
+    def _parse_response(self, content_blocks: list[ContentBlock]) -> ParsedResponse:
         """Separate tool_use and text blocks, log thinking blocks."""
         tool_calls: list[ToolUseBlock] = []
         text_blocks: list[TextBlock] = []
