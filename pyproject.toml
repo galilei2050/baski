@@ -13,6 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Vladimir Baskakov" }]
 
 dependencies = [
+    "anthropic",
     "pyyaml",
     "python-dateutil",
     "pytz",
