@@ -1,0 +1,258 @@
+"""Core agentic loop with tool execution and conversation management."""
+
+import asyncio
+import time
+from typing import NamedTuple
+
+from anthropic import APIError as AnthropicAPIError
+from anthropic import APIStatusError, AsyncAnthropic
+from anthropic.types import ContentBlock, Message, MessageParam, TextBlock, TextBlockParam, ThinkingBlock, ToolUseBlock
+from pymongo.asynchronous.database import AsyncDatabase
+
+from baski.primitives import datetime
+from baski.server import Logger
+
+from .execute_result import AgentExecuteResult
+from .message_history import MessageHistory
+from .pricing import ExecutionStats
+from .tool import Tool
+from .toolbox import ToolBox
+from .tools import DeleteMessagesTool, KnowledgeTool
+from .trace import TraceCollector, TraceCollectorConfig
+
+DEFAULT_MODEL = "claude-opus-4-8"
+
+
+class ParsedResponse(NamedTuple):
+    """Parsed content blocks from an Anthropic API response."""
+
+    tool_calls: list[ToolUseBlock]
+    text_blocks: list[TextBlock]
+
+
+class TurnResult(NamedTuple):
+    """Result of a single agentic turn."""
+
+    message_to_user: str | None
+    has_tool_calls: bool
+
+
+class AgentConfig(NamedTuple):
+    """Configuration parameters for Agent initialization."""
+
+    logger: Logger
+    tools: list[Tool]
+    anthropic_client: AsyncAnthropic
+    database: AsyncDatabase
+    bucket_name: str
+    model: str = DEFAULT_MODEL
+
+
+class Agent:
+    """Stateful agent with agentic loop handling tool execution and conversation management.
+
+    KnowledgeTool is automatically injected.
+    """
+
+    def __init__(self, config: AgentConfig, **params: object) -> None:
+        """Initialize agent with config and optional API parameter overrides."""
+        self.logger = config.logger
+        self.database = config.database
+        self.bucket_name = config.bucket_name
+        self.message_history = MessageHistory(logger=config.logger)
+        self.anthropic_client = config.anthropic_client
+
+        self.toolbox = ToolBox(logger=config.logger)
+        self.knowledge_tool = KnowledgeTool()
+        for tool in config.tools:
+            self.toolbox.add(tool)
+        self.toolbox.add(self.knowledge_tool)
+        self.toolbox.add(DeleteMessagesTool(self.message_history))
+
+        actual_system_prompt = (
+            f"You have tools:\n"
+            f"{self.toolbox.short_description()}\n"
+            f"\n"
+            f"IMPORTANT: Use store_knowledge tool proactively to preserve important information.\n"
+            f"Store knowledge immediately after learning new facts to prevent loss during conversation.\n"
+            f"\n"
+            f"CONTEXT MANAGEMENT: After storing knowledge, delete the source turns with delete_messages"
+            f" to free context space.\n"
+            f"Workflow: search → store_knowledge → delete_messages for the turns you just stored.\n"
+            f"\n"
+            f"Always use the most appropriate tool. Use parallel tool calls when they are independent\n"
+            f"Provide brief explanation of your reasoning for when you use tools and what are next steps."
+        )
+
+        self.params: dict[str, object] = {
+            "system": actual_system_prompt,
+            "model": config.model,
+            "tools": self.toolbox.format_for_api(),
+            "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
+            "thinking": {"type": "adaptive"},
+            "max_tokens": 128_000,
+        } | params
+
+    async def _call_api(self, messages: list[MessageParam]) -> Message:
+        """Streaming API call with retry on api_error (max 1 retry, 2s sleep)."""
+        max_retries = 1
+        retry_count = 0
+
+        while retry_count <= max_retries:
+            try:
+                async with self.anthropic_client.messages.stream(
+                    messages=messages,
+                    **self.params,  # type: ignore[arg-type]  # params is a dynamic dict merged with caller overrides
+                ) as stream:
+                    return await stream.get_final_message()
+            except APIStatusError as e:
+                if retry_count < max_retries and "api_error" in str(e):
+                    retry_count += 1
+                    self.logger.warning(
+                        "Anthropic API error, retrying",
+                        labels={
+                            "retryCount": retry_count,
+                            "maxRetries": max_retries,
+                            "error": str(e),
+                        },
+                    )
+                    await asyncio.sleep(2)
+                    continue
+                raise
+            except AnthropicAPIError:
+                raise
+
+        raise RuntimeError("Unreachable: retry loop exited without return or raise")
+
+    def _parse_response(self, content_blocks: list[ContentBlock]) -> ParsedResponse:
+        """Separate tool_use and text blocks, log thinking blocks."""
+        tool_calls: list[ToolUseBlock] = []
+        text_blocks: list[TextBlock] = []
+
+        for block in content_blocks:
+            if isinstance(block, ToolUseBlock):
+                tool_calls.append(block)
+            elif isinstance(block, ThinkingBlock):
+                self.logger.info("Thinking", labels={"thinking": block.thinking})
+            elif isinstance(block, TextBlock):
+                text_blocks.append(block)
+            else:
+                self.logger.warning("Unknown content block type", labels={"blockType": type(block).__name__})
+
+        return ParsedResponse(tool_calls=tool_calls, text_blocks=text_blocks)
+
+    def _build_messages(self, user_request_message: MessageParam) -> list[MessageParam]:
+        """Build the full message list for an API call."""
+        now = datetime.now()
+        time_message = MessageParam(
+            role="user",
+            content=[TextBlockParam(type="text", text=f"Current time: {now.strftime('%A, %B %d, %Y %I:%M %p %Z')}")],
+        )
+        return [
+            user_request_message,
+            time_message,
+            self.knowledge_tool.format_as_user_message(),
+            *self.message_history.format_for_api(),
+        ]
+
+    async def _execute_tools(
+        self, tool_calls: list[ToolUseBlock], stats: ExecutionStats, trace: TraceCollector
+    ) -> None:
+        """Execute tool calls and record results in history and trace."""
+        stats.tool_calls += len(tool_calls)
+        self.logger.info(
+            "Tools execution", labels={"toolCount": len(tool_calls), "tools": [tc.name for tc in tool_calls]}
+        )
+        tool_results = await self.toolbox.execute(tool_calls)
+        self.message_history.add_tool_results(tool_results)
+        trace.record_tool_results(tool_results, self.toolbox.last_timings)
+
+    def _collect_text(self, text_blocks: list[TextBlock]) -> str | None:
+        """Join text blocks into a single user-facing message string."""
+        if not text_blocks:
+            return None
+        message_to_user = "\n".join([b.text for b in text_blocks])
+        self.logger.info("Text received", labels={"message_to_user": message_to_user})
+        return message_to_user
+
+    async def _run_turn(
+        self, user_request_message: MessageParam, stats: ExecutionStats, trace: TraceCollector
+    ) -> TurnResult:
+        """Run a single agentic turn: build messages, call API, parse response, execute tools."""
+        messages = self._build_messages(user_request_message)
+        trace.start_turn(messages)
+
+        start = time.monotonic()
+        message = await self._call_api(messages)
+        api_duration_ms = int((time.monotonic() - start) * 1000)
+
+        stats.collect(message.usage)
+        if len(self.message_history) == 0 and message.usage.input_tokens > self.message_history.max_tokens // 2:
+            raise RuntimeError("Initial context is too large. Try to provide more LLM context.")
+
+        self.message_history.truncate(message.usage)
+        parsed = self._parse_response(message.content)
+        trace.record_response(message, api_duration_ms)
+
+        with self.message_history:
+            self.message_history.add_assistant(message.content)
+            if parsed.tool_calls:
+                await self._execute_tools(parsed.tool_calls, stats, trace)
+
+        trace.end_turn()
+        return TurnResult(
+            message_to_user=self._collect_text(parsed.text_blocks),
+            has_tool_calls=bool(parsed.tool_calls),
+        )
+
+    async def execute(self, user_request: str) -> AgentExecuteResult:
+        """Execute user request.
+
+        It can be called multiple times however the context is preserved. Each following
+        call will have context from previous calls.
+        """
+        user_request_message = MessageParam(
+            role="user", content=[TextBlockParam(type="text", text=f"YOUR TASK IS: {user_request}")]
+        )
+        self.logger.info("Agent execution started", labels={"userRequest": user_request[:100]})
+
+        stats = ExecutionStats(model=str(self.params["model"]))
+        trace = TraceCollector(
+            config=TraceCollectorConfig(
+                user_request=user_request,
+                model=str(self.params["model"]),
+                system_prompt=str(self.params["system"]),
+                bucket_name=self.bucket_name,
+                database=self.database,
+                logger=self.logger,
+            )
+        )
+
+        turn = TurnResult(message_to_user=None, has_tool_calls=False)
+        try:
+            while True:
+                turn = await self._run_turn(user_request_message, stats, trace)
+                if not turn.has_tool_calls:
+                    break
+        except Exception as e:
+            await trace.finalize(stats, error=str(e))
+            raise
+
+        self.logger.info(
+            "Agent execution complete",
+            labels={"userRequest": user_request[:100], "traceId": trace.id, **stats.for_logs().model_dump()},
+        )
+
+        result = AgentExecuteResult(
+            trace_id=trace.id,
+            response=turn.message_to_user,
+            total_input_tokens=stats.input_tokens,
+            total_output_tokens=stats.output_tokens,
+            turn_count=stats.turn_count,
+            tool_call_count=stats.tool_calls,
+            total_cost=stats.cost,
+        )
+
+        await trace.finalize(stats, result)
+
+        return result
