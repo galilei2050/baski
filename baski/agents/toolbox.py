@@ -59,13 +59,29 @@ class ToolBox:
             self.logger.error("Tool not found", labels={"toolName": tool_name})
             self.last_timings[tool_call.id] = 0
             return ToolResultBlockParam(
-                type="tool_result", tool_use_id=tool_call.id, content=f"Error: Tool {tool_name} not found"
+                type="tool_result",
+                tool_use_id=tool_call.id,
+                content=f"Error: Tool {tool_name} not found",
+                is_error=True,
             )
 
         tool = self._tools[tool_name]
         start = time.monotonic()
 
-        result = await tool.execute(**tool_input)
+        try:
+            result = await tool.execute(**tool_input)
+        except Exception as exc:
+            # A tool raising must not kill the whole agent run. Hand the error back to
+            # the model as a failed tool_result so it can recover or report it.
+            self.logger.exception("Tool execution failed", labels={"toolName": tool_name, "error": str(exc)})
+            self.last_timings[tool_call.id] = int((time.monotonic() - start) * 1000)
+            return ToolResultBlockParam(
+                type="tool_result",
+                tool_use_id=tool_call.id,
+                content=f"Error executing tool {tool_name}: {exc}",
+                is_error=True,
+            )
+
         self.last_timings[tool_call.id] = int((time.monotonic() - start) * 1000)
         return ToolResultBlockParam(type="tool_result", tool_use_id=tool_call.id, content=result)
 
