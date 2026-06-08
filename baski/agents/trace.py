@@ -8,7 +8,7 @@ from typing import NamedTuple, cast
 from anthropic.types import Message, MessageParam, TextBlock, ThinkingBlock, ToolResultBlockParam, ToolUseBlock
 from google.api_core.exceptions import GoogleAPIError
 from google.cloud import storage
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, SkipValidation, field_serializer
 from pymongo.asynchronous.database import AsyncDatabase
 
 from baski.concurrent import as_async
@@ -61,7 +61,9 @@ class TurnRecord(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     turn_number: int
-    messages: list[MessageParam]
+    # Already-valid anthropic params, kept only to serialize. SkipValidation stops pydantic
+    # from re-validating and turning each `content` list into a single-use ValidatorIterator.
+    messages: SkipValidation[list[MessageParam]]
     thinking: list[str] = []
     text_response: str | None = None
     tool_calls: list[ToolUseBlock] = []
