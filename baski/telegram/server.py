@@ -97,7 +97,11 @@ class TelegramServer(AsyncServer):
             info = await self.bot.get_webhook_info()
             if info.url != webhook_url:
                 await retry(self.bot.set_webhook, exceptions=(TelegramAPIError,), url=webhook_url)
+            # feed_webhook_update never fires the dispatcher startup/shutdown events that
+            # start_polling emits, so router on_startup hooks (client init) must be driven here.
+            await self.dp.emit_startup(bot=self.bot)
             yield
+            await self.dp.emit_shutdown(bot=self.bot)
             await self.bot.session.close()
 
         app = FastAPI(lifespan=lifespan, openapi_url=None)
