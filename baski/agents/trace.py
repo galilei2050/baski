@@ -1,17 +1,20 @@
 """Agent trace collection and persistence to GCS and MongoDB."""
 
+import asyncio
 import gzip
 import time
 import uuid
 from typing import NamedTuple, cast
 
+import anyio
 from anthropic.types import Message, MessageParam, TextBlock, ThinkingBlock, ToolResultBlockParam, ToolUseBlock
 from google.api_core.exceptions import GoogleAPIError
 from google.cloud import storage
 from pydantic import BaseModel, ConfigDict, SkipValidation, field_serializer
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import PyMongoError
 
-from baski.concurrent import as_async
+from baski.concurrent import as_async, as_task
 from baski.primitives import datetime, json
 from baski.server import Logger
 
@@ -19,6 +22,16 @@ from .execute_result import AgentExecuteResult
 from .pricing import ExecutionStats
 
 TRACES_PREFIX = "traces/"
+
+# Strong references to detached trace-persistence tasks: asyncio keeps only a weak ref to a
+# bare task, so without this a fire-and-forget task can be garbage-collected mid-flight.
+_pending: set[asyncio.Task] = set()
+
+
+def _track(task: asyncio.Task) -> None:
+    """Hold a strong ref to a detached task until it finishes, then drop it."""
+    _pending.add(task)
+    task.add_done_callback(_pending.discard)
 
 
 class TraceCollectorConfig(NamedTuple):
@@ -193,16 +206,25 @@ class TraceCollector:
         self._turns.append(turn)
         self._current_turn = None
 
-    async def finalize(
+    def finalize(
         self, stats: ExecutionStats, result: AgentExecuteResult | None = None, error: str | None = None
     ) -> None:
-        """Persist trace to GCS and MongoDB."""
+        """Schedule trace persistence (GCS + MongoDB) as a detached background task.
+
+        Fire-and-forget: the agent's reply path never blocks on — or fails from — trace IO.
+        Traces are debug-only; losing one (e.g. if Cloud Run throttles the instance after the
+        response is sent) is acceptable, a broken reply is not.
+        """
         if result is not None:
             self._result = result
         self._error = error
+        _track(as_task(self._persist(stats)))
 
-        await self._upload_to_gcs()
-        await self._save_to_db(stats)
+    async def _persist(self, stats: ExecutionStats) -> None:
+        """Upload to GCS and save to MongoDB concurrently; each isolates its own failure."""
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(self._upload_to_gcs)
+            tg.start_soon(self._save_to_db, stats)
 
     async def _upload_to_gcs(self) -> None:
         upload_error: str | None = None
@@ -251,5 +273,9 @@ class TraceCollector:
             "cost": stats.cost,
             "error": self._error,
         }
-        await self._database["traces"].insert_one(doc)
+        try:
+            await self._database["traces"].insert_one(doc)
+        except PyMongoError:
+            self._logger.exception("Failed to save trace to DB", labels={"traceId": self.id})
+            return
         self._logger.info("Trace saved to DB", labels={"traceId": self.id})

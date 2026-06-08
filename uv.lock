@@ -247,6 +247,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiogram" },
     { name = "anthropic" },
+    { name = "anyio" },
     { name = "beautifulsoup4" },
     { name = "cryptography" },
     { name = "fastapi" },
@@ -289,6 +290,7 @@ dev = [
 requires-dist = [
     { name = "aiogram", specifier = ">=3" },
     { name = "anthropic" },
+    { name = "anyio" },
     { name = "beautifulsoup4" },
     { name = "cryptography" },
     { name = "fastapi" },

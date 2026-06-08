@@ -12,6 +12,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from baski.primitives import datetime
 from baski.server import Logger
 
+from .events import Completed, Listener, Thinking, ToolFinished, ToolStarted, TurnStarted, noop
 from .execute_result import AgentExecuteResult
 from .message_history import MessageHistory
 from .pricing import ExecutionStats
@@ -156,16 +157,30 @@ class Agent:
         ]
 
     async def _execute_tools(
-        self, tool_calls: list[ToolUseBlock], stats: ExecutionStats, trace: TraceCollector
+        self, tool_calls: list[ToolUseBlock], stats: ExecutionStats, trace: TraceCollector, on_event: Listener
     ) -> None:
         """Execute tool calls and record results in history and trace."""
         stats.tool_calls += len(tool_calls)
         self.logger.info(
             "Tools execution", labels={"toolCount": len(tool_calls), "tools": [tc.name for tc in tool_calls]}
         )
+        for tc in tool_calls:
+            await on_event(ToolStarted(name=tc.name, tool_input=dict(tc.input) if isinstance(tc.input, dict) else {}))
+
         tool_results = await self.toolbox.execute(tool_calls)
         self.message_history.add_tool_results(tool_results)
         trace.record_tool_results(tool_results, self.toolbox.last_timings)
+
+        name_by_id = {tc.id: tc.name for tc in tool_calls}
+        for result in tool_results:
+            tool_id = result["tool_use_id"]
+            await on_event(
+                ToolFinished(
+                    name=name_by_id.get(tool_id, ""),
+                    ok=not result.get("is_error", False),
+                    duration_ms=self.toolbox.last_timings.get(tool_id, 0),
+                )
+            )
 
     def _collect_text(self, text_blocks: list[TextBlock]) -> str | None:
         """Join text blocks into a single user-facing message string."""
@@ -176,7 +191,7 @@ class Agent:
         return message_to_user
 
     async def _run_turn(
-        self, user_request_message: MessageParam, stats: ExecutionStats, trace: TraceCollector
+        self, user_request_message: MessageParam, stats: ExecutionStats, trace: TraceCollector, on_event: Listener
     ) -> TurnResult:
         """Run a single agentic turn: build messages, call API, parse response, execute tools."""
         messages = self._build_messages(user_request_message)
@@ -187,6 +202,7 @@ class Agent:
         api_duration_ms = int((time.monotonic() - start) * 1000)
 
         stats.collect(message.usage)
+        await on_event(TurnStarted(turn=stats.turn_count))
         if len(self.message_history) == 0 and message.usage.input_tokens > self.message_history.max_tokens // 2:
             raise RuntimeError("Initial context is too large. Try to provide more LLM context.")
 
@@ -194,10 +210,14 @@ class Agent:
         parsed = self._parse_response(message.content)
         trace.record_response(message, api_duration_ms)
 
+        for block in message.content:
+            if isinstance(block, ThinkingBlock):
+                await on_event(Thinking(text=block.thinking))
+
         with self.message_history:
             self.message_history.add_assistant(message.content)
             if parsed.tool_calls:
-                await self._execute_tools(parsed.tool_calls, stats, trace)
+                await self._execute_tools(parsed.tool_calls, stats, trace, on_event)
 
         trace.end_turn()
         return TurnResult(
@@ -205,11 +225,15 @@ class Agent:
             has_tool_calls=bool(parsed.tool_calls),
         )
 
-    async def execute(self, user_request: str) -> AgentExecuteResult:
+    async def execute(self, user_request: str, on_event: Listener = noop) -> AgentExecuteResult:
         """Execute user request.
 
         It can be called multiple times however the context is preserved. Each following
         call will have context from previous calls.
+
+        `on_event` is an optional async listener that receives step events (turn start,
+        thinking, tool start/finish, completion) as the loop runs — the seam for live
+        progress UIs. The agent stays transport-agnostic; the listener owns rendering.
         """
         user_request_message = MessageParam(
             role="user", content=[TextBlockParam(type="text", text=f"YOUR TASK IS: {user_request}")]
@@ -231,12 +255,14 @@ class Agent:
         turn = TurnResult(message_to_user=None, has_tool_calls=False)
         try:
             while True:
-                turn = await self._run_turn(user_request_message, stats, trace)
+                turn = await self._run_turn(user_request_message, stats, trace, on_event)
                 if not turn.has_tool_calls:
                     break
         except Exception as e:
-            await trace.finalize(stats, error=str(e))
+            trace.finalize(stats, error=str(e))
             raise
+
+        await on_event(Completed(response=turn.message_to_user))
 
         self.logger.info(
             "Agent execution complete",
@@ -253,6 +279,6 @@ class Agent:
             total_cost=stats.cost,
         )
 
-        await trace.finalize(stats, result)
+        trace.finalize(stats, result)
 
         return result
