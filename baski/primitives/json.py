@@ -30,7 +30,7 @@ def loadf(file_path: str | Path) -> Any:  # noqa: ANN401 — JSON deserializer r
 
 def dump(data: Any, fp: IO[str]) -> None:  # noqa: ANN401 — JSON serializer accepts any JSON-compatible value
     """Encode data as JSON to a file-like object with datetime support."""
-    return true_json.dump(data, fp, default=convert_date, indent=2, sort_keys=True)
+    return true_json.dump(data, fp, default=convert_date, indent=2, sort_keys=True, ensure_ascii=False)
 
 
 def dumps(
@@ -40,7 +40,7 @@ def dumps(
     sort_keys: bool = True,
 ) -> str:
     """Encode data as a JSON string with datetime support."""
-    return true_json.dumps(data, default=convert_date, indent=indent, sort_keys=sort_keys)
+    return true_json.dumps(data, default=convert_date, indent=indent, sort_keys=sort_keys, ensure_ascii=False)
 
 
 def dumpf(data: Any, file_path: str | Path) -> None:  # noqa: ANN401 — JSON serializer accepts any JSON-compatible value
