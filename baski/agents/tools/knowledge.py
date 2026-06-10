@@ -71,8 +71,16 @@ Use aggressively - store first, synthesize later. More is better than perfect.""
         """Initialize an empty knowledge store."""
         self.knowledge: list[str] = []
 
-    async def execute(self, facts: list[str]) -> str:  # type: ignore[override]
-        """Store facts and return confirmation."""
+    async def execute(self, facts: list[str] | str) -> str:  # type: ignore[override]
+        """Store facts and return confirmation.
+
+        The model often sends `facts` as one newline-joined string instead of the
+        array the schema asks for. Split it into lines — otherwise `extend` iterates
+        the string character-by-character, storing each char as its own "fact" and
+        flooding the context with thousands of single-letter bullets.
+        """
+        if isinstance(facts, str):
+            facts = [line.strip() for line in facts.splitlines() if line.strip()]
         self.knowledge.extend(facts)
         stored = len(facts)
         total = len(self.knowledge)
