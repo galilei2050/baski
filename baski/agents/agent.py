@@ -13,6 +13,7 @@ from baski.primitives import datetime
 from baski.server import Logger
 
 from .events import Completed, Listener, Thinking, ToolFinished, ToolStarted, TurnStarted, noop
+from .events import Message as MessageEvent
 from .execute_result import AgentExecuteResult
 from .message_history import MessageHistory
 from .pricing import ExecutionStats
@@ -22,6 +23,14 @@ from .tools import DeleteMessagesTool, KnowledgeTool
 from .trace import TraceCollector, TraceCollectorConfig
 
 DEFAULT_MODEL = "claude-opus-4-8"
+
+
+class AgentRefusalError(RuntimeError):
+    """The model returned stop_reason='refusal'.
+
+    Anthropic's safety classifier halted generation with no usable output. Raised
+    immediately so the caller can surface it instead of silently falling back.
+    """
 
 
 class ParsedResponse(NamedTuple):
@@ -95,7 +104,11 @@ class Agent:
         } | params
 
     async def _call_api(self, messages: list[MessageParam]) -> Message:
-        """Streaming API call with retry on api_error (max 1 retry, 2s sleep)."""
+        """Streaming API call with retry on api_error (max 1 retry, 2s sleep).
+
+        Raises AgentRefusalError on a `refusal` stop_reason — caught here, before the
+        message reaches history, so the refused content never gets fed back in.
+        """
         max_retries = 1
         retry_count = 0
 
@@ -105,23 +118,23 @@ class Agent:
                     messages=messages,
                     **self.params,  # type: ignore[arg-type]  # params is a dynamic dict merged with caller overrides
                 ) as stream:
-                    return await stream.get_final_message()
+                    message = await stream.get_final_message()
             except APIStatusError as e:
                 if retry_count < max_retries and "api_error" in str(e):
                     retry_count += 1
                     self.logger.warning(
                         "Anthropic API error, retrying",
-                        labels={
-                            "retryCount": retry_count,
-                            "maxRetries": max_retries,
-                            "error": str(e),
-                        },
+                        labels={"retryCount": retry_count, "maxRetries": max_retries, "error": str(e)},
                     )
                     await asyncio.sleep(2)
                     continue
                 raise
             except AnthropicAPIError:
                 raise
+
+            if message.stop_reason == "refusal":
+                raise AgentRefusalError("Model returned stop_reason='refusal'")
+            return message
 
         raise RuntimeError("Unreachable: retry loop exited without return or raise")
 
@@ -190,6 +203,20 @@ class Agent:
         self.logger.info("Text received", labels={"message_to_user": message_to_user})
         return message_to_user
 
+    async def _emit_step_events(self, message: Message, parsed: ParsedResponse, on_event: Listener) -> str | None:
+        """Surface this turn's thinking and pre-tool narration to the listener; return the text.
+
+        Narration before tool calls is user-facing; the final turn's text (no tool calls) is
+        the answer and is delivered via Completed, not here.
+        """
+        for block in message.content:
+            if isinstance(block, ThinkingBlock):
+                await on_event(Thinking(text=block.thinking))
+        text = self._collect_text(parsed.text_blocks)
+        if text and parsed.tool_calls:
+            await on_event(MessageEvent(text=text))
+        return text
+
     async def _run_turn(
         self, user_request_message: MessageParam, stats: ExecutionStats, trace: TraceCollector, on_event: Listener
     ) -> TurnResult:
@@ -210,9 +237,7 @@ class Agent:
         parsed = self._parse_response(message.content)
         trace.record_response(message, api_duration_ms)
 
-        for block in message.content:
-            if isinstance(block, ThinkingBlock):
-                await on_event(Thinking(text=block.thinking))
+        message_to_user = await self._emit_step_events(message, parsed, on_event)
 
         with self.message_history:
             self.message_history.add_assistant(message.content)
@@ -220,10 +245,7 @@ class Agent:
                 await self._execute_tools(parsed.tool_calls, stats, trace, on_event)
 
         trace.end_turn()
-        return TurnResult(
-            message_to_user=self._collect_text(parsed.text_blocks),
-            has_tool_calls=bool(parsed.tool_calls),
-        )
+        return TurnResult(message_to_user=message_to_user, has_tool_calls=bool(parsed.tool_calls))
 
     async def execute(self, user_request: str, on_event: Listener = noop) -> AgentExecuteResult:
         """Execute user request.

@@ -3,9 +3,11 @@
 import abc
 import argparse
 import asyncio
+import json
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from functools import cached_property
+from http import HTTPStatus
 from typing import Any
 from urllib.parse import urlparse
 
@@ -18,11 +20,14 @@ from fastapi import FastAPI, Request, Response
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HypercornConfig
 
+from ..clients.scheduler import CloudTasksConfig, CloudTasksScheduler
 from ..env import get_env
 from ..pattern import retry
 from ..server.async_server import AsyncServer
 
 __all__ = ["TelegramServer"]
+
+_WORKER_PATH = "/tasks/update"
 
 
 class TelegramServer(AsyncServer):
@@ -53,6 +58,19 @@ class TelegramServer(AsyncServer):
     def add_webhook_routes(self, app: FastAPI) -> None:
         """Hook for subclasses to add extra HTTP routes alongside the webhook endpoint."""
 
+    def cloud_tasks_config(self) -> CloudTasksConfig:
+        """Return Cloud Tasks settings for the inbound-update queue.
+
+        Override to run in webhook mode — baski imposes no project, region, queue, or
+        service-account convention; the app supplies them (DI seam, like `routers()`).
+        """
+        raise NotImplementedError("Override cloud_tasks_config() to run in webhook mode")
+
+    @cached_property
+    def _scheduler(self) -> CloudTasksScheduler:
+        """Cloud Tasks enqueuer for inbound updates (webhook mode only)."""
+        return CloudTasksScheduler(self.cloud_tasks_config())
+
     @cached_property
     def bot(self) -> Bot:
         """Construct the `Bot` instance from the `--token` CLI arg."""
@@ -71,7 +89,7 @@ class TelegramServer(AsyncServer):
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Register CLI arguments for webhook URL and bot token."""
         super().add_arguments(parser)
-        parser.add_argument("--webhook-path", default=str(get_env("WEBHOOK_URL", "")), help="Public webhook URL")
+        parser.add_argument("--webhook-url", default=str(get_env("WEBHOOK_URL", "")), help="Public webhook URL")
         parser.add_argument("--token", default=str(get_env("TELEGRAM_TOKEN", "")), help="Telegram bot token")
 
     def execute(self) -> int:
@@ -88,9 +106,11 @@ class TelegramServer(AsyncServer):
         asyncio.run(main())
         return 0
 
-    def _run_webhook(self) -> int:
-        webhook_url = self.args["webhook_path"]
-        path = urlparse(webhook_url).path or "/webhook"
+    def _run_webhook(self) -> int:  # noqa: PLR0915 — wires startup + webhook/worker/ping routes inline
+        webhook_url = self.args["webhook_url"]
+        parsed = urlparse(webhook_url)
+        path = parsed.path or "/webhook"
+        worker_url = f"{parsed.scheme}://{parsed.netloc}{_WORKER_PATH}"
 
         @asynccontextmanager
         async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -108,9 +128,22 @@ class TelegramServer(AsyncServer):
 
         @app.post(path)
         async def webhook(request: Request) -> Response:
+            # Enqueue and answer 200 at once. Running the agent inline blows past Telegram's
+            # ~60s webhook timeout, which re-delivers the same update_id and double-processes.
+            # Forward Telegram's exact bytes; parse only to peek update_id for the dedup name.
+            raw = await request.body()
+            await self._scheduler.enqueue(
+                endpoint=worker_url,
+                task_name=f"tg-update-{json.loads(raw)['update_id']}",
+                payload=raw,
+            )
+            return Response(status_code=HTTPStatus.OK)
+
+        @app.post(_WORKER_PATH)
+        async def process_task(request: Request) -> Response:
             update = Update.model_validate(await request.json(), context={"bot": self.bot})
             await self.dp.feed_webhook_update(self.bot, update)
-            return Response(status_code=200)
+            return Response(status_code=HTTPStatus.OK)
 
         @app.get("/")
         @app.get("/ping")

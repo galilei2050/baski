@@ -10,6 +10,7 @@ import pulumi_gcp as gcp
 __all__ = [
     "CloudRunService",
     "CloudRunServiceConfig",
+    "create_cloud_run_env",
     "create_cloud_run_secret_env",
     "create_cloud_run_with_monitoring",
     "repo_sha",
@@ -41,6 +42,11 @@ class CloudRunServiceConfig:
     ingress: str = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
     min_instances: int = 0
     max_instances: int = 8
+
+
+def create_cloud_run_env(name: str, value: str) -> gcp.cloudrunv2.ServiceTemplateContainerEnvArgs:
+    """Return a Cloud Run env-var args object with a plain literal value."""
+    return gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(name=name, value=value)
 
 
 def create_cloud_run_secret_env(secret_id: str, service_name: str) -> gcp.cloudrunv2.ServiceTemplateContainerEnvArgs:

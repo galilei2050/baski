@@ -1,11 +1,12 @@
 """Agent framework for LLM-powered tool-use conversations."""
 
-from .agent import Agent, AgentConfig
+from .agent import Agent, AgentConfig, AgentRefusalError
 from .events import (
     AgentEvent,
     Completed,
     EventType,
     Listener,
+    Message,
     Thinking,
     ToolFinished,
     ToolStarted,
@@ -22,9 +23,11 @@ __all__ = [
     "AgentConfig",
     "AgentEvent",
     "AgentExecuteResult",
+    "AgentRefusalError",
     "Completed",
     "EventType",
     "Listener",
+    "Message",
     "MessageHistory",
     "Thinking",
     "Tool",

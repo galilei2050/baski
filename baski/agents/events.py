@@ -16,6 +16,7 @@ class EventType(StrEnum):
 
     TURN_STARTED = "turn_started"
     THINKING = "thinking"
+    MESSAGE = "message"
     TOOL_STARTED = "tool_started"
     TOOL_FINISHED = "tool_finished"
     COMPLETED = "completed"
@@ -32,6 +33,13 @@ class Thinking(BaseModel):
     """The model produced extended-thinking text this turn (may be long)."""
 
     type: EventType = EventType.THINKING
+    text: str
+
+
+class Message(BaseModel):
+    """The model produced user-facing text mid-run (narration before its tool calls)."""
+
+    type: EventType = EventType.MESSAGE
     text: str
 
 
@@ -59,7 +67,7 @@ class Completed(BaseModel):
     response: str | None
 
 
-AgentEvent = TurnStarted | Thinking | ToolStarted | ToolFinished | Completed
+AgentEvent = TurnStarted | Thinking | Message | ToolStarted | ToolFinished | Completed
 
 # A listener is any async callable that consumes one event. Compose several by
 # wrapping them in one function; the agent takes a single listener for simplicity.
