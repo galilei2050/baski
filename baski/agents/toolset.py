@@ -85,8 +85,7 @@ class ToolSet:
         try:
             kwargs = tool.Input.model_validate(tool_input).model_dump()
         except ValidationError as exc:
-            # Invalid input: skip execute and hand a parsed, per-field message back to the
-            # model so it can fix the arguments. Other parallel calls still run.
+            # Skip execute; hand the parsed error back so the model retries. Sibling calls still run.
             content = _format_validation_error(tool_name, exc)
             self.logger.warning("Tool input invalid", labels={"toolName": tool_name, "error": content})
             self.last_timings[tool_call.id] = 0

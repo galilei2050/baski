@@ -90,6 +90,8 @@ class Agent:
         self.toolset = config.toolset
         self.short_term_memory = config.short_term_memory
         self.on_event = on_event
+        # Not in message_history.turns, so truncate/delete_messages can't reach it.
+        self._pinned: list[MessageParam] = []
 
         system = f"{config.system_prompt}\n\n{self.toolset.system_prompt()}\n\n{AGENT_LOOP_GUIDANCE}"
 
@@ -101,6 +103,14 @@ class Agent:
             "thinking": {"type": "adaptive"},
             "max_tokens": 128_000,
         } | params
+
+    def add_pinned(self, message: MessageParam) -> None:
+        """Pin a message to the top of every turn, protected from truncation/deletion."""
+        self._pinned.append(message)
+
+    def add_pinned_text(self, text: str) -> None:
+        """Pin a plain user-text message (e.g. a one-shot task framed for the model)."""
+        self.add_pinned(MessageParam(role="user", content=[TextBlockParam(type="text", text=text)]))
 
     async def _call_api(self, messages: list[MessageParam]) -> Message:
         """Streaming API call with retry on api_error (max 1 retry, 2s sleep).
@@ -154,15 +164,15 @@ class Agent:
 
         return ParsedResponse(tool_calls=tool_calls, text_blocks=text_blocks)
 
-    def _build_messages(self, user_request_message: MessageParam) -> list[MessageParam]:
-        """Build the full message list for an API call."""
+    def _build_messages(self) -> list[MessageParam]:
+        """Build the full message list for an API call: pinned context, then the history."""
         now = datetime.now()
         time_message = MessageParam(
             role="user",
             content=[TextBlockParam(type="text", text=f"Current time: {now.strftime('%A, %B %d, %Y %I:%M %p %Z')}")],
         )
         return [
-            user_request_message,
+            *self._pinned,
             time_message,
             self.short_term_memory.format_as_user_message(),
             *self.message_history.format_for_api(),
@@ -218,11 +228,9 @@ class Agent:
             await self.on_event(MessageEvent(text=text))
         return text
 
-    async def _run_turn(
-        self, user_request_message: MessageParam, stats: ExecutionStats, trace: TraceCollector
-    ) -> TurnResult:
+    async def _run_turn(self, stats: ExecutionStats, trace: TraceCollector) -> TurnResult:
         """Run a single agentic turn: build messages, call API, parse response, execute tools."""
-        messages = self._build_messages(user_request_message)
+        messages = self._build_messages()
         trace.start_turn(messages)
 
         start = time.monotonic()
@@ -248,22 +256,34 @@ class Agent:
         trace.end_turn()
         return TurnResult(message_to_user=message_to_user, has_tool_calls=bool(parsed.tool_calls))
 
-    async def execute(self, user_request: str) -> AgentExecuteResult:
-        """Execute user request.
+    def _request_label(self) -> str:
+        """Short label for traces/logs: the newest user text, from history then pinned."""
+        history_messages = [m for turn in self.message_history.turns for m in turn.messages]
+        for message in reversed(self._pinned + history_messages):
+            if message["role"] != "user":
+                continue
+            content = message["content"]
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        return str(block.get("text", ""))
+        return ""
 
-        It can be called multiple times however the context is preserved. Each following
-        call will have context from previous calls. Step events go to the `on_event`
-        listener passed to the constructor.
+    async def execute(self) -> AgentExecuteResult:
+        """Drive the agentic loop over the current pinned context + history until done.
+
+        The caller sets up the request before calling: pin a task with `add_pinned_text`
+        (task mode), or add the message to the injected `message_history` (chat mode, which
+        also lets the loop continue a prior conversation). Re-callable — context is
+        preserved across calls. Step events go to the constructor's `on_event` listener.
         """
-        user_request_message = MessageParam(
-            role="user", content=[TextBlockParam(type="text", text=f"YOUR TASK IS: {user_request}")]
-        )
-        self.logger.info("Agent execution started", labels={"userRequest": user_request[:100]})
+        label = self._request_label()
+        self.logger.info("Agent execution started", labels={"userRequest": label[:100]})
 
         stats = ExecutionStats(model=str(self.params["model"]))
         trace = TraceCollector(
             config=TraceCollectorConfig(
-                user_request=user_request,
+                user_request=label,
                 model=str(self.params["model"]),
                 system_prompt=str(self.params["system"]),
                 bucket_name=self.bucket_name,
@@ -275,7 +295,7 @@ class Agent:
         turn = TurnResult(message_to_user=None, has_tool_calls=False)
         try:
             while True:
-                turn = await self._run_turn(user_request_message, stats, trace)
+                turn = await self._run_turn(stats, trace)
                 if not turn.has_tool_calls:
                     break
         except Exception as e:
@@ -286,7 +306,7 @@ class Agent:
 
         self.logger.info(
             "Agent execution complete",
-            labels={"userRequest": user_request[:100], "traceId": trace.id, **stats.for_logs().model_dump()},
+            labels={"userRequest": label[:100], "traceId": trace.id, **stats.for_logs().model_dump()},
         )
 
         result = AgentExecuteResult(
