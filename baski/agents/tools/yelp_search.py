@@ -1,6 +1,6 @@
 """Tool for searching Yelp business listings via SerpApi."""
 
-from typing import Any, ClassVar
+from pydantic import BaseModel, Field
 
 from baski.clients.serpapi_client import SerpApiClient
 
@@ -17,17 +17,12 @@ class YelpSearchTool(Tool):
         "Use this when you need to find restaurants, shops, services, or other local businesses. "
         "Returns ratings, reviews, prices, categories, and links."
     )
-    input_schema: ClassVar[Any] = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "What to search for (e.g. 'auto repair', 'pizza', 'plumber')"},
-            "location": {
-                "type": "string",
-                "description": "Location to search in (e.g. 'San Francisco, CA', 'Belmont, CA')",
-            },
-        },
-        "required": ["query", "location"],
-    }
+
+    class Input(BaseModel):
+        """Arguments for a Yelp business search."""
+
+        query: str = Field(description="What to search for (e.g. 'auto repair', 'pizza', 'plumber')")
+        location: str = Field(description="Location to search in (e.g. 'San Francisco, CA', 'Belmont, CA')")
 
     def __init__(self, serpapi_client: SerpApiClient) -> None:
         """Store the SerpApi client."""

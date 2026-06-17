@@ -1,6 +1,6 @@
 """Tool for fetching Google Play developer app data via SerpApi."""
 
-from typing import Any, ClassVar
+from pydantic import BaseModel, Field
 
 from baski.clients.serpapi_client import SerpApiClient
 from baski.server import Logger
@@ -16,16 +16,11 @@ class GooglePlayTool(Tool):
     description = (
         "Fetch Google Play developer apps and data using developer ID. Returns list of apps published by the developer."
     )
-    input_schema: ClassVar[Any] = {
-        "type": "object",
-        "properties": {
-            "developer_id": {
-                "type": "string",
-                "description": "Google Play developer ID (e.g., 'Zibra+AI' or 'com.developer.name')",
-            }
-        },
-        "required": ["developer_id"],
-    }
+
+    class Input(BaseModel):
+        """Arguments for a Google Play developer lookup."""
+
+        developer_id: str = Field(description="Google Play developer ID (e.g., 'Zibra+AI' or 'com.developer.name')")
 
     def __init__(self, serpapi_client: SerpApiClient, logger: Logger) -> None:
         """Store SerpApi client and logger."""

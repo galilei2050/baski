@@ -1,9 +1,9 @@
 """Tool for browsing websites and extracting page content as markdown."""
 
 from http import HTTPStatus
-from typing import Any, ClassVar
 
 from httpx import HTTPStatusError, TimeoutException
+from pydantic import BaseModel, Field
 
 from baski.clients.playwright_client import PlaywrightClient
 
@@ -22,13 +22,11 @@ class WebBrowseTool(Tool):
         "Fetch and read content from any website URL. Returns the page content as markdown. "
         "Use this to read articles, documentation, company websites, or any web content."
     )
-    input_schema: ClassVar[Any] = {
-        "type": "object",
-        "properties": {
-            "url": {"type": "string", "description": "The full URL to browse (e.g., 'https://example.com')"}
-        },
-        "required": ["url"],
-    }
+
+    class Input(BaseModel):
+        """Arguments for a website fetch."""
+
+        url: str = Field(description="The full URL to browse (e.g., 'https://example.com')")
 
     def __init__(self, playwright_client: PlaywrightClient) -> None:
         """Store the Playwright client for page fetching."""

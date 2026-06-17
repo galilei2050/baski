@@ -1,17 +1,30 @@
-"""Tool for storing knowledge gathered during agent research."""
+"""Short-term memory tool — stores facts gathered during a single agent run."""
 
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Annotated
 
 from anthropic.types import MessageParam, TextBlockParam
+from pydantic import BaseModel, BeforeValidator, Field
 
 from ..tool import Tool
 
 
-class KnowledgeTool(Tool):
+def _coerce_facts(value: object) -> object:
+    """Split a newline-joined string into lines before validation.
+
+    The model often sends `facts` as one string instead of the array the schema asks
+    for. Splitting here stops `extend` from iterating the string character-by-character
+    and flooding the context with thousands of single-letter "facts".
+    """
+    if isinstance(value, str):
+        return [line.strip() for line in value.splitlines() if line.strip()]
+    return value
+
+
+class ShortTermMemory(Tool):
     """Tool for agent to store knowledge gathered during conversation."""
 
-    name = "store_knowledge"
+    name = "store_memory"
     one_line = "Lightweight tool to preserve context (USE FREQUENTLY)"
     description = """Store facts you discover during research to preserve them when conversation context gets truncated.
 
@@ -55,32 +68,19 @@ BAD EXAMPLES:
 
 Use aggressively - store first, synthesize later. More is better than perfect."""
 
-    input_schema: ClassVar[Any] = {
-        "type": "object",
-        "properties": {
-            "facts": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of facts with [SOURCE] prefix. Example: '[DECK] Company founded 2020'",
-            }
-        },
-        "required": ["facts"],
-    }
+    class Input(BaseModel):
+        """Arguments for storing short-term memory facts."""
+
+        facts: Annotated[list[str], BeforeValidator(_coerce_facts)] = Field(
+            description="List of facts with [SOURCE] prefix. Example: '[DECK] Company founded 2020'"
+        )
 
     def __init__(self) -> None:
         """Initialize an empty knowledge store."""
         self.knowledge: list[str] = []
 
-    async def execute(self, facts: list[str] | str) -> str:  # type: ignore[override]
-        """Store facts and return confirmation.
-
-        The model often sends `facts` as one newline-joined string instead of the
-        array the schema asks for. Split it into lines — otherwise `extend` iterates
-        the string character-by-character, storing each char as its own "fact" and
-        flooding the context with thousands of single-letter bullets.
-        """
-        if isinstance(facts, str):
-            facts = [line.strip() for line in facts.splitlines() if line.strip()]
+    async def execute(self, facts: list[str]) -> str:  # type: ignore[override]
+        """Store facts and return confirmation."""
         self.knowledge.extend(facts)
         stored = len(facts)
         total = len(self.knowledge)
@@ -113,4 +113,11 @@ Use aggressively - store first, synthesize later. More is better than perfect.""
         return MessageParam(
             role="user",
             content=[TextBlockParam(type="text", text="\n".join(parts))],
+        )
+
+    def system_prompt(self) -> str:
+        """Instructions telling the agent to preserve facts proactively."""
+        return (
+            f"IMPORTANT: Use {self.name} proactively to preserve important information.\n"
+            f"Store knowledge immediately after learning new facts to prevent loss during conversation."
         )

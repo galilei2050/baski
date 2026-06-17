@@ -1,6 +1,8 @@
 """Tool for searching the web via Google SerpApi."""
 
-from typing import Any, ClassVar
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 from baski.clients.serpapi_client import SerpApiClient
 
@@ -18,16 +20,13 @@ class GoogleSearchTool(Tool):
         "use exact phrases with '\"exact phrase\"', "
         "or combine terms with 'keyword1 keyword2 -exclude'"
     )
-    input_schema: ClassVar[Any] = {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "The search query to execute on Google. Supports operators like site:, intitle:, inurl:",
-            }
-        },
-        "required": ["query"],
-    }
+
+    class Input(BaseModel):
+        """Arguments for a Google search."""
+
+        query: str = Field(
+            description="The search query to execute on Google. Supports operators like site:, intitle:, inurl:"
+        )
 
     def __init__(self, serpapi_client: SerpApiClient) -> None:
         """Store the SerpApi client."""

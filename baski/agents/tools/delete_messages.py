@@ -1,6 +1,6 @@
 """Tool for deleting conversation turns from message history."""
 
-from typing import Any, ClassVar
+from pydantic import BaseModel, Field
 
 from ..message_history import MessageHistory
 from ..tool import Tool
@@ -13,21 +13,14 @@ class DeleteMessagesTool(Tool):
     one_line = "Delete old messages to free context window"
     description = """Delete turns from conversation history by [Turn N] IDs visible in messages.
 
-Use after store_knowledge to remove turns whose content is already preserved.
+Use after store_memory to remove turns whose content is already preserved.
 Old search results may contain outdated info — delete to avoid misleading context.
 Tool result turns are the largest — prioritize deleting those."""
 
-    input_schema: ClassVar[Any] = {
-        "type": "object",
-        "properties": {
-            "turn_ids": {
-                "type": "array",
-                "items": {"type": "integer"},
-                "description": "Turn IDs to delete (visible as [Turn N] in messages)",
-            }
-        },
-        "required": ["turn_ids"],
-    }
+    class Input(BaseModel):
+        """Arguments for deleting conversation turns."""
+
+        turn_ids: list[int] = Field(description="Turn IDs to delete (visible as [Turn N] in messages)")
 
     def __init__(self, message_history: MessageHistory) -> None:
         """Store reference to the shared message history."""
@@ -37,3 +30,11 @@ Tool result turns are the largest — prioritize deleting those."""
         """Delete specified turns and return removal count."""
         removed = self.message_history.delete_turns(turn_ids)
         return f"Deleted {removed} message(s). Remaining: {len(self.message_history)} messages."
+
+    def system_prompt(self) -> str:
+        """Instructions telling the agent to free context after storing knowledge."""
+        return (
+            "CONTEXT MANAGEMENT: After storing knowledge, delete the source turns with "
+            "delete_messages to free context space.\n"
+            "Workflow: search → store_memory → delete_messages for the turns you just stored."
+        )

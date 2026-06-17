@@ -16,7 +16,7 @@ from .events import (
 from .execute_result import AgentExecuteResult
 from .message_history import MessageHistory
 from .tool import Tool
-from .toolbox import ToolBox
+from .toolset import ToolSet
 
 __all__ = [
     "Agent",
@@ -31,8 +31,8 @@ __all__ = [
     "MessageHistory",
     "Thinking",
     "Tool",
-    "ToolBox",
     "ToolFinished",
+    "ToolSet",
     "ToolStarted",
     "TurnStarted",
     "noop",
