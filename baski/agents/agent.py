@@ -17,12 +17,16 @@ from .events import Message as MessageEvent
 from .execute_result import AgentExecuteResult
 from .message_history import MessageHistory
 from .pricing import ExecutionStats
-from .tool import Tool
-from .toolbox import ToolBox
-from .tools import DeleteMessagesTool, KnowledgeTool
+from .tools import ShortTermMemory
+from .toolset import ToolSet
 from .trace import TraceCollector, TraceCollectorConfig
 
 DEFAULT_MODEL = "claude-opus-4-8"
+
+AGENT_LOOP_GUIDANCE = (
+    "Always use the most appropriate tool. Use parallel tool calls when they are independent\n"
+    "Provide brief explanation of your reasoning for when you use tools and what are next steps."
+)
 
 
 class AgentRefusalError(RuntimeError):
@@ -48,60 +52,65 @@ class TurnResult(NamedTuple):
 
 
 class AgentConfig(NamedTuple):
-    """Configuration parameters for Agent initialization."""
+    """Configuration parameters for Agent initialization.
+
+    The caller assembles the collaborators (`toolset`, `message_history`,
+    `short_term_memory`) and passes them in — the Agent constructs nothing. The
+    `short_term_memory` instance must also be present in the `toolset` so the model
+    can call it; the separate field gives the Agent typed access for per-turn
+    knowledge injection.
+    """
 
     logger: Logger
-    tools: list[Tool]
+    toolset: ToolSet
+    message_history: MessageHistory
+    short_term_memory: ShortTermMemory
     anthropic_client: AsyncAnthropic
     database: AsyncDatabase
     bucket_name: str
+    system_prompt: str
     model: str = DEFAULT_MODEL
 
 
 class Agent:
-    """Stateful agent with agentic loop handling tool execution and conversation management.
+    """Stateful agent with agentic loop handling tool execution and conversation management."""
 
-    KnowledgeTool is automatically injected.
-    """
+    def __init__(self, config: AgentConfig, on_event: Listener = noop, **params: object) -> None:
+        """Initialize agent with config, a step-event listener, and optional API overrides.
 
-    def __init__(self, config: AgentConfig, **params: object) -> None:
-        """Initialize agent with config and optional API parameter overrides."""
+        `on_event` is an async listener that receives step events (turn start, thinking,
+        tool start/finish, completion) as the loop runs — the seam for live progress UIs.
+        The agent stays transport-agnostic; the listener owns rendering.
+        """
         self.logger = config.logger
         self.database = config.database
         self.bucket_name = config.bucket_name
-        self.message_history = MessageHistory(logger=config.logger)
         self.anthropic_client = config.anthropic_client
+        self.message_history = config.message_history
+        self.toolset = config.toolset
+        self.short_term_memory = config.short_term_memory
+        self.on_event = on_event
+        # Not in message_history.turns, so truncate/delete_messages can't reach it.
+        self._pinned: list[MessageParam] = []
 
-        self.toolbox = ToolBox(logger=config.logger)
-        self.knowledge_tool = KnowledgeTool()
-        for tool in config.tools:
-            self.toolbox.add(tool)
-        self.toolbox.add(self.knowledge_tool)
-        self.toolbox.add(DeleteMessagesTool(self.message_history))
-
-        actual_system_prompt = (
-            f"You have tools:\n"
-            f"{self.toolbox.short_description()}\n"
-            f"\n"
-            f"IMPORTANT: Use store_knowledge tool proactively to preserve important information.\n"
-            f"Store knowledge immediately after learning new facts to prevent loss during conversation.\n"
-            f"\n"
-            f"CONTEXT MANAGEMENT: After storing knowledge, delete the source turns with delete_messages"
-            f" to free context space.\n"
-            f"Workflow: search → store_knowledge → delete_messages for the turns you just stored.\n"
-            f"\n"
-            f"Always use the most appropriate tool. Use parallel tool calls when they are independent\n"
-            f"Provide brief explanation of your reasoning for when you use tools and what are next steps."
-        )
+        system = f"{config.system_prompt}\n\n{self.toolset.system_prompt()}\n\n{AGENT_LOOP_GUIDANCE}"
 
         self.params: dict[str, object] = {
-            "system": actual_system_prompt,
+            "system": system,
             "model": config.model,
-            "tools": self.toolbox.format_for_api(),
+            "tools": self.toolset.format_for_api(),
             "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
             "thinking": {"type": "adaptive"},
             "max_tokens": 128_000,
         } | params
+
+    def add_pinned(self, message: MessageParam) -> None:
+        """Pin a message to the top of every turn, protected from truncation/deletion."""
+        self._pinned.append(message)
+
+    def add_pinned_text(self, text: str) -> None:
+        """Pin a plain user-text message (e.g. a one-shot task framed for the model)."""
+        self.add_pinned(MessageParam(role="user", content=[TextBlockParam(type="text", text=text)]))
 
     async def _call_api(self, messages: list[MessageParam]) -> Message:
         """Streaming API call with retry on api_error (max 1 retry, 2s sleep).
@@ -155,22 +164,22 @@ class Agent:
 
         return ParsedResponse(tool_calls=tool_calls, text_blocks=text_blocks)
 
-    def _build_messages(self, user_request_message: MessageParam) -> list[MessageParam]:
-        """Build the full message list for an API call."""
+    def _build_messages(self) -> list[MessageParam]:
+        """Build the full message list for an API call: pinned context, then the history."""
         now = datetime.now()
         time_message = MessageParam(
             role="user",
             content=[TextBlockParam(type="text", text=f"Current time: {now.strftime('%A, %B %d, %Y %I:%M %p %Z')}")],
         )
         return [
-            user_request_message,
+            *self._pinned,
             time_message,
-            self.knowledge_tool.format_as_user_message(),
+            self.short_term_memory.format_as_user_message(),
             *self.message_history.format_for_api(),
         ]
 
     async def _execute_tools(
-        self, tool_calls: list[ToolUseBlock], stats: ExecutionStats, trace: TraceCollector, on_event: Listener
+        self, tool_calls: list[ToolUseBlock], stats: ExecutionStats, trace: TraceCollector
     ) -> None:
         """Execute tool calls and record results in history and trace."""
         stats.tool_calls += len(tool_calls)
@@ -178,20 +187,22 @@ class Agent:
             "Tools execution", labels={"toolCount": len(tool_calls), "tools": [tc.name for tc in tool_calls]}
         )
         for tc in tool_calls:
-            await on_event(ToolStarted(name=tc.name, tool_input=dict(tc.input) if isinstance(tc.input, dict) else {}))
+            await self.on_event(
+                ToolStarted(name=tc.name, tool_input=dict(tc.input) if isinstance(tc.input, dict) else {})
+            )
 
-        tool_results = await self.toolbox.execute(tool_calls)
+        tool_results = await self.toolset.execute(tool_calls)
         self.message_history.add_tool_results(tool_results)
-        trace.record_tool_results(tool_results, self.toolbox.last_timings)
+        trace.record_tool_results(tool_results, self.toolset.last_timings)
 
         name_by_id = {tc.id: tc.name for tc in tool_calls}
         for result in tool_results:
             tool_id = result["tool_use_id"]
-            await on_event(
+            await self.on_event(
                 ToolFinished(
                     name=name_by_id.get(tool_id, ""),
                     ok=not result.get("is_error", False),
-                    duration_ms=self.toolbox.last_timings.get(tool_id, 0),
+                    duration_ms=self.toolset.last_timings.get(tool_id, 0),
                 )
             )
 
@@ -203,7 +214,7 @@ class Agent:
         self.logger.info("Text received", labels={"message_to_user": message_to_user})
         return message_to_user
 
-    async def _emit_step_events(self, message: Message, parsed: ParsedResponse, on_event: Listener) -> str | None:
+    async def _emit_step_events(self, message: Message, parsed: ParsedResponse) -> str | None:
         """Surface this turn's thinking and pre-tool narration to the listener; return the text.
 
         Narration before tool calls is user-facing; the final turn's text (no tool calls) is
@@ -211,17 +222,15 @@ class Agent:
         """
         for block in message.content:
             if isinstance(block, ThinkingBlock):
-                await on_event(Thinking(text=block.thinking))
+                await self.on_event(Thinking(text=block.thinking))
         text = self._collect_text(parsed.text_blocks)
         if text and parsed.tool_calls:
-            await on_event(MessageEvent(text=text))
+            await self.on_event(MessageEvent(text=text))
         return text
 
-    async def _run_turn(
-        self, user_request_message: MessageParam, stats: ExecutionStats, trace: TraceCollector, on_event: Listener
-    ) -> TurnResult:
+    async def _run_turn(self, stats: ExecutionStats, trace: TraceCollector) -> TurnResult:
         """Run a single agentic turn: build messages, call API, parse response, execute tools."""
-        messages = self._build_messages(user_request_message)
+        messages = self._build_messages()
         trace.start_turn(messages)
 
         start = time.monotonic()
@@ -229,7 +238,7 @@ class Agent:
         api_duration_ms = int((time.monotonic() - start) * 1000)
 
         stats.collect(message.usage)
-        await on_event(TurnStarted(turn=stats.turn_count))
+        await self.on_event(TurnStarted(turn=stats.turn_count))
         if len(self.message_history) == 0 and message.usage.input_tokens > self.message_history.max_tokens // 2:
             raise RuntimeError("Initial context is too large. Try to provide more LLM context.")
 
@@ -237,35 +246,44 @@ class Agent:
         parsed = self._parse_response(message.content)
         trace.record_response(message, api_duration_ms)
 
-        message_to_user = await self._emit_step_events(message, parsed, on_event)
+        message_to_user = await self._emit_step_events(message, parsed)
 
         with self.message_history:
             self.message_history.add_assistant(message.content)
             if parsed.tool_calls:
-                await self._execute_tools(parsed.tool_calls, stats, trace, on_event)
+                await self._execute_tools(parsed.tool_calls, stats, trace)
 
         trace.end_turn()
         return TurnResult(message_to_user=message_to_user, has_tool_calls=bool(parsed.tool_calls))
 
-    async def execute(self, user_request: str, on_event: Listener = noop) -> AgentExecuteResult:
-        """Execute user request.
+    def _request_label(self) -> str:
+        """Short label for traces/logs: the newest user text, from history then pinned."""
+        history_messages = [m for turn in self.message_history.turns for m in turn.messages]
+        for message in reversed(self._pinned + history_messages):
+            if message["role"] != "user":
+                continue
+            content = message["content"]
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        return str(block.get("text", ""))
+        return ""
 
-        It can be called multiple times however the context is preserved. Each following
-        call will have context from previous calls.
+    async def execute(self) -> AgentExecuteResult:
+        """Drive the agentic loop over the current pinned context + history until done.
 
-        `on_event` is an optional async listener that receives step events (turn start,
-        thinking, tool start/finish, completion) as the loop runs — the seam for live
-        progress UIs. The agent stays transport-agnostic; the listener owns rendering.
+        The caller sets up the request before calling: pin a task with `add_pinned_text`
+        (task mode), or add the message to the injected `message_history` (chat mode, which
+        also lets the loop continue a prior conversation). Re-callable — context is
+        preserved across calls. Step events go to the constructor's `on_event` listener.
         """
-        user_request_message = MessageParam(
-            role="user", content=[TextBlockParam(type="text", text=f"YOUR TASK IS: {user_request}")]
-        )
-        self.logger.info("Agent execution started", labels={"userRequest": user_request[:100]})
+        label = self._request_label()
+        self.logger.info("Agent execution started", labels={"userRequest": label[:100]})
 
         stats = ExecutionStats(model=str(self.params["model"]))
         trace = TraceCollector(
             config=TraceCollectorConfig(
-                user_request=user_request,
+                user_request=label,
                 model=str(self.params["model"]),
                 system_prompt=str(self.params["system"]),
                 bucket_name=self.bucket_name,
@@ -277,18 +295,18 @@ class Agent:
         turn = TurnResult(message_to_user=None, has_tool_calls=False)
         try:
             while True:
-                turn = await self._run_turn(user_request_message, stats, trace, on_event)
+                turn = await self._run_turn(stats, trace)
                 if not turn.has_tool_calls:
                     break
         except Exception as e:
             trace.finalize(stats, error=str(e))
             raise
 
-        await on_event(Completed(response=turn.message_to_user))
+        await self.on_event(Completed(response=turn.message_to_user))
 
         self.logger.info(
             "Agent execution complete",
-            labels={"userRequest": user_request[:100], "traceId": trace.id, **stats.for_logs().model_dump()},
+            labels={"userRequest": label[:100], "traceId": trace.id, **stats.for_logs().model_dump()},
         )
 
         result = AgentExecuteResult(

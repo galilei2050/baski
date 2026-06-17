@@ -4,17 +4,30 @@ import asyncio
 import time
 
 from anthropic.types import ToolParam, ToolResultBlockParam, ToolUseBlock
+from pydantic import ValidationError
 
 from baski.server import Logger
 
 from .tool import Tool
 
 
-class ToolBox:
+def _format_validation_error(tool_name: str, exc: ValidationError) -> str:
+    """Render a pydantic error as a short, per-field message the model can act on."""
+    lines = [f"Invalid input for tool '{tool_name}'. Fix these and call it again:"]
+    for err in exc.errors():
+        field = ".".join(str(p) for p in err["loc"]) or "(top level)"
+        detail = err["msg"]
+        if "input" in err:
+            detail += f" (received: {err['input']!r})"
+        lines.append(f"- {field}: {detail}")
+    return "\n".join(lines)
+
+
+class ToolSet:
     """Registry and parallel executor for a named set of agent tools."""
 
     def __init__(self, logger: Logger) -> None:
-        """Initialize an empty toolbox with a logger for error reporting."""
+        """Initialize an empty toolset with a logger for error reporting."""
         self._tools: dict[str, Tool] = {}
         self.logger = logger
         self.last_timings: dict[str, int] = {}
@@ -24,27 +37,29 @@ class ToolBox:
         return tool_name in self._tools
 
     def add(self, tool: Tool) -> None:
-        """Add a tool to the toolbox."""
+        """Add a tool to the toolset."""
         self._tools[tool.name] = tool
 
     def get(self, tool_name: str) -> Tool | None:
-        """Get a tool from the toolbox by name."""
+        """Get a tool from the toolset by name."""
         return self._tools.get(tool_name)
 
     def remove(self, tool_name: str) -> None:
-        """Remove a tool from the toolbox by name."""
+        """Remove a tool from the toolset by name."""
         self._tools.pop(tool_name, None)
 
-    def short_description(self) -> str:
-        """Short description of tools in toolbox for LLM awareness."""
+    def system_prompt(self) -> str:
+        """The tool roster plus each tool's own prompt contribution, for the system prompt."""
         if not self._tools:
             return "No tools available"
 
-        descriptions = []
+        roster = ["You have tools:"]
         for i, tool in enumerate(self._tools.values(), 1):
-            descriptions.append(f"{i}. {tool.one_line} ({tool.name})")
+            roster.append(f"{i}. {tool.one_line} ({tool.name})")
 
-        return "\n".join(descriptions)
+        sections = ["\n".join(roster)]
+        sections.extend(c for tool in self._tools.values() if (c := tool.system_prompt()))
+        return "\n\n".join(sections)
 
     def format_for_api(self) -> list[ToolParam]:
         """Convert tools to Claude API format."""
@@ -66,10 +81,25 @@ class ToolBox:
             )
 
         tool = self._tools[tool_name]
+
+        try:
+            kwargs = tool.Input.model_validate(tool_input).model_dump()
+        except ValidationError as exc:
+            # Skip execute; hand the parsed error back so the model retries. Sibling calls still run.
+            content = _format_validation_error(tool_name, exc)
+            self.logger.warning("Tool input invalid", labels={"toolName": tool_name, "error": content})
+            self.last_timings[tool_call.id] = 0
+            return ToolResultBlockParam(
+                type="tool_result",
+                tool_use_id=tool_call.id,
+                content=content,
+                is_error=True,
+            )
+
         start = time.monotonic()
 
         try:
-            result = await tool.execute(**tool_input)
+            result = await tool.execute(**kwargs)
         except Exception as exc:
             # A tool raising must not kill the whole agent run. Hand the error back to
             # the model as a failed tool_result so it can recover or report it.

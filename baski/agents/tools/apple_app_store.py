@@ -1,6 +1,6 @@
 """Tool for fetching Apple App Store data via SerpApi."""
 
-from typing import Any, ClassVar
+from pydantic import BaseModel, Field
 
 from baski.clients.serpapi_client import SerpApiClient
 from baski.server import Logger
@@ -17,13 +17,11 @@ class AppleAppStoreTool(Tool):
         "Fetch Apple App Store data by searching for company/app name. "
         "Returns app information including title, rating, developer, and description."
     )
-    input_schema: ClassVar[Any] = {
-        "type": "object",
-        "properties": {
-            "company_name": {"type": "string", "description": "Company or app name to search for (e.g., 'Zibra AI')"}
-        },
-        "required": ["company_name"],
-    }
+
+    class Input(BaseModel):
+        """Arguments for an App Store lookup."""
+
+        company_name: str = Field(description="Company or app name to search for (e.g., 'Zibra AI')")
 
     def __init__(self, serpapi_client: SerpApiClient, logger: Logger) -> None:
         """Store SerpApi client and logger."""
