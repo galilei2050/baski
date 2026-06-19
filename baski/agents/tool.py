@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
-from anthropic.types import ToolParam
+from anthropic.types import MessageParam, ToolParam
 from pydantic import BaseModel
 
 
@@ -49,6 +49,17 @@ class Tool(ABC):
     def system_prompt(self) -> str:
         """Extra instructions this tool adds to the agent system prompt. None by default."""
         return ""
+
+    def user_message(self) -> MessageParam | None:
+        """A user-role block this tool injects at the top of every turn, or None.
+
+        The seam for always-present, per-turn context a tool owns — short-term memory's
+        fact list, a long-term memory index, a skill's loaded body. The Agent collects
+        these from every tool in the set; default None means the tool injects nothing.
+        Keep the content stable within a run (date-only timestamps) to preserve the
+        prompt cache.
+        """
+        return None
 
     @abstractmethod
     async def execute(self, **kwargs: object) -> str:
