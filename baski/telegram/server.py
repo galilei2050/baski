@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from functools import cached_property
 from http import HTTPStatus
 from typing import Any
@@ -28,15 +29,18 @@ from ..server.async_server import AsyncServer
 __all__ = ["TelegramServer"]
 
 _WORKER_PATH = "/tasks/update"
+# The worker runs the whole agent turn synchronously; give Cloud Tasks the HTTP-target max so it
+# doesn't cancel a slow turn. Cloud Run's request timeout must be set at least this high.
+_WORKER_DEADLINE = timedelta(minutes=30)
 
 
 class TelegramServer(AsyncServer):
     """aiogram v3 server with two execution modes.
 
     - polling (default, local) — `dp.start_polling(bot)`.
-    - webhook (`--cloud`) — FastAPI + hypercorn, same stack as `FastAPIServer`. POSTs to the
-      webhook path are deserialized into `aiogram.types.Update` and dispatched via
-      `dp.feed_webhook_update`. Webhook registration runs on FastAPI startup.
+    - webhook (`--cloud`) — FastAPI + hypercorn, same stack as `FastAPIServer`. The webhook
+      enqueues each update to Cloud Tasks; the `/tasks/update` worker deserializes it into an
+      `aiogram.types.Update` and processes it fully via `dp.feed_update`. Registration runs on startup.
 
     Subclasses must implement `routers()`. Override `outer_middlewares` / `fsm_storage` /
     `add_webhook_routes` as needed.
@@ -136,13 +140,16 @@ class TelegramServer(AsyncServer):
                 endpoint=worker_url,
                 task_name=f"tg-update-{json.loads(raw)['update_id']}",
                 payload=raw,
+                dispatch_deadline=_WORKER_DEADLINE,
             )
             return Response(status_code=HTTPStatus.OK)
 
         @app.post(_WORKER_PATH)
         async def process_task(request: Request) -> Response:
+            # feed_update, not feed_webhook_update: the latter returns after 55s and finishes the
+            # handler on Cloud Run's throttled CPU, dropping the reply. Process fully, then answer.
             update = Update.model_validate(await request.json(), context={"bot": self.bot})
-            await self.dp.feed_webhook_update(self.bot, update)
+            await self.dp.feed_update(self.bot, update)
             return Response(status_code=HTTPStatus.OK)
 
         @app.get("/")

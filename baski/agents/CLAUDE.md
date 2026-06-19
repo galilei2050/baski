@@ -7,7 +7,7 @@ Ported from clarity-auto-care; the generic core lives here so other projects (e.
 
 - `Agent` (`agent.py`): the agentic loop. Constructs nothing — the caller passes collaborators via `AgentConfig` plus an `on_event` listener.
 - `ToolSet` (`toolset.py`): tool registry + parallel executor; validates each call against the tool's `Input` model; `system_prompt()` aggregates the roster + per-tool contributions.
-- `Tool` (`tool.py`): abstract base. A tool declares `name`/`one_line`/`description`, a nested `Input(BaseModel)`, and `async execute(**kwargs) -> str`; optional `system_prompt()`.
+- `Tool` (`tool.py`): abstract base. A tool declares `name`/`one_line`/`description`, a nested `Input(BaseModel)`, and `async execute(**kwargs) -> str`; optional `system_prompt()` (static guidance into the system prompt) and `user_message()` (a per-turn user block injected at the top — short-term facts, a memory index, a skill body; default None). The Agent collects `user_message()` from every tool, so injection needs no dedicated config field.
 - `MessageHistory` (`message_history.py`): transcript with context-window truncation.
 - `TraceCollector` (`trace.py`): turn-by-turn traces → GCS + Mongo `traces`.
 - `AgentExecuteResult` (`execute_result.py`): pydantic result (trace id, tokens, counts, cost).
@@ -15,7 +15,7 @@ Ported from clarity-auto-care; the generic core lives here so other projects (e.
 ## Built-in Tools (`tools/`)
 
 The caller wires these into the `ToolSet` (not auto-injected):
-- `ShortTermMemory` (`store_memory`): per-run fact scratchpad; also passed as `AgentConfig.short_term_memory`.
+- `ShortTermMemory` (`store_memory`): per-run fact scratchpad; injects its facts via `user_message()`.
 - `DeleteMessagesTool` (`delete_messages`): drop turns by id; built with the shared `MessageHistory`.
 - `GoogleSearchTool`, `YelpSearchTool`, `GooglePlayTool`, `AppleAppStoreTool` (SerpApi), `WebBrowseTool` (Playwright).
 

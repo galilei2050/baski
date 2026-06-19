@@ -17,7 +17,6 @@ from .events import Message as MessageEvent
 from .execute_result import AgentExecuteResult
 from .message_history import MessageHistory
 from .pricing import ExecutionStats
-from .tools import ShortTermMemory
 from .toolset import ToolSet
 from .trace import TraceCollector, TraceCollectorConfig
 
@@ -54,17 +53,15 @@ class TurnResult(NamedTuple):
 class AgentConfig(NamedTuple):
     """Configuration parameters for Agent initialization.
 
-    The caller assembles the collaborators (`toolset`, `message_history`,
-    `short_term_memory`) and passes them in — the Agent constructs nothing. The
-    `short_term_memory` instance must also be present in the `toolset` so the model
-    can call it; the separate field gives the Agent typed access for per-turn
-    knowledge injection.
+    The caller assembles the collaborators (`toolset`, `message_history`) and passes
+    them in — the Agent constructs nothing. Per-turn knowledge injection (short-term
+    facts, memory indexes, skill bodies) flows through each tool's `user_message()`,
+    collected by the toolset — no tool needs a dedicated config field.
     """
 
     logger: Logger
     toolset: ToolSet
     message_history: MessageHistory
-    short_term_memory: ShortTermMemory
     anthropic_client: AsyncAnthropic
     database: AsyncDatabase
     bucket_name: str
@@ -88,7 +85,6 @@ class Agent:
         self.anthropic_client = config.anthropic_client
         self.message_history = config.message_history
         self.toolset = config.toolset
-        self.short_term_memory = config.short_term_memory
         self.on_event = on_event
         # Not in message_history.turns, so truncate/delete_messages can't reach it.
         self._pinned: list[MessageParam] = []
@@ -173,8 +169,8 @@ class Agent:
         )
         return [
             *self._pinned,
+            *self.toolset.user_messages(),
             time_message,
-            self.short_term_memory.format_as_user_message(),
             *self.message_history.format_for_api(),
         ]
 

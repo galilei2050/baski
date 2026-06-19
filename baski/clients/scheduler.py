@@ -62,10 +62,14 @@ class CloudTasksScheduler:
         endpoint: str,
         task_name: str,
         payload: bytes,
+        dispatch_deadline: datetime.timedelta,
         headers: dict[str, str] | None = None,
         schedule_time: datetime.datetime | None = None,
     ) -> bool:
-        """Create an HTTP task POSTing payload to endpoint; False if task_name already exists."""
+        """Create an HTTP task POSTing payload to endpoint; False if task_name already exists.
+
+        `dispatch_deadline` bounds how long Cloud Tasks waits for the worker (HTTP range 15s-30min).
+        """
         parent = self._client.queue_path(self._project_id, self._location, self._queue)
         task = tasks_v2.Task(
             name=f"{parent}/tasks/{task_name}",
@@ -76,6 +80,7 @@ class CloudTasksScheduler:
                 body=payload,
                 oidc_token=tasks_v2.OidcToken(service_account_email=self._invoker_sa_email),
             ),
+            dispatch_deadline=dispatch_deadline,
         )
         if schedule_time is not None:
             ts = timestamp_pb2.Timestamp()

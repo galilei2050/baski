@@ -42,6 +42,7 @@ class CloudRunServiceConfig:
     ingress: str = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
     min_instances: int = 0
     max_instances: int = 8
+    timeout: str | None = None  # request timeout, e.g. "1800s"; None → Cloud Run default (300s)
 
 
 def create_cloud_run_env(name: str, value: str) -> gcp.cloudrunv2.ServiceTemplateContainerEnvArgs:
@@ -140,6 +141,7 @@ def create_cloud_run_with_monitoring(config: CloudRunServiceConfig) -> CloudRunS
             ),
             service_account=config.service_account_email,
             containers=[container_args],
+            timeout=config.timeout,
         ),
     )
     iam_member = None

@@ -100,8 +100,8 @@ Use aggressively - store first, synthesize later. More is better than perfect.""
         """Clear all stored knowledge."""
         self.knowledge.clear()
 
-    def format_as_user_message(self) -> MessageParam:
-        """Format all knowledge as user message for API."""
+    def user_message(self) -> MessageParam:
+        """Format all knowledge as the per-turn user block injected at the top of the prompt."""
         parts = [f"IMPORTANT: Use {self.name} tool immediately after learning ANY new information to prevent loss.", ""]
 
         if not self.knowledge:
