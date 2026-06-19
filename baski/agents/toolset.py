@@ -61,9 +61,9 @@ class ToolSet:
         sections.extend(c for tool in self._tools.values() if (c := tool.system_prompt()))
         return "\n\n".join(sections)
 
-    def user_messages(self) -> list[MessageParam]:
+    async def user_messages(self) -> list[MessageParam]:
         """Per-turn user blocks every tool injects at the top of the prompt (skip Nones)."""
-        return [m for tool in self._tools.values() if (m := tool.user_message()) is not None]
+        return [m for tool in self._tools.values() if (m := await tool.user_message()) is not None]
 
     def format_for_api(self) -> list[ToolParam]:
         """Convert tools to Claude API format."""

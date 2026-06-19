@@ -4,6 +4,7 @@ import asyncio
 import gzip
 import time
 import uuid
+from pathlib import Path
 from typing import NamedTuple, cast
 
 import anyio
@@ -22,6 +23,7 @@ from .execute_result import AgentExecuteResult
 from .pricing import ExecutionStats
 
 TRACES_PREFIX = "traces/"
+
 
 # Strong references to detached trace-persistence tasks: asyncio keeps only a weak ref to a
 # bare task, so without this a fire-and-forget task can be garbage-collected mid-flight.
@@ -43,6 +45,7 @@ class TraceCollectorConfig(NamedTuple):
     bucket_name: str
     database: AsyncDatabase
     logger: Logger
+    local_traces_dir: str | None = None  # write the full trace here instead of GCS; None → GCS
 
 
 class SerializedMessageContent(BaseModel):
@@ -131,12 +134,14 @@ class TraceCollector:
         self._bucket_name = config.bucket_name
         self._database = config.database
         self._logger = config.logger
+        self._local_traces_dir = config.local_traces_dir
         self._turns: list[TurnRecord] = []
         self._result: AgentExecuteResult | None = None
         self._error: str | None = None
         self._created_at = datetime.now().isoformat()
         self._current_turn: TurnRecord | None = None
         self._turn_start: float = 0
+        self._persist_task: asyncio.Task | None = None
 
     def start_turn(self, messages: list[MessageParam]) -> None:
         """Begin recording a new turn."""
@@ -209,47 +214,65 @@ class TraceCollector:
     def finalize(
         self, stats: ExecutionStats, result: AgentExecuteResult | None = None, error: str | None = None
     ) -> None:
-        """Schedule trace persistence (GCS + MongoDB) as a detached background task.
+        """Schedule trace persistence (full trace to GCS or LOCAL_TRACES_DIR, summary to Mongo).
 
-        Fire-and-forget: the agent's reply path never blocks on — or fails from — trace IO.
-        Traces are debug-only; losing one (e.g. if Cloud Run throttles the instance after the
-        response is sent) is acceptable, a broken reply is not.
+        Detached task; fire-and-forget by default — the reply path never blocks on or fails from
+        trace IO. Call `wait()` (Agent does when `await_trace` is set) to block until it finishes.
         """
         if result is not None:
             self._result = result
         self._error = error
-        _track(as_task(self._persist(stats)))
+        task = as_task(self._persist(stats))
+        self._persist_task = task
+        _track(task)
+
+    async def wait(self) -> None:
+        """Block until scheduled persistence finishes (no-op if finalize wasn't called)."""
+        if self._persist_task is not None:
+            await self._persist_task
+
+    def _build_record(self) -> "TraceRecord":
+        """Assemble the full trace record — the single source for both persist modes."""
+        return TraceRecord(
+            id=self.id,
+            created_at=self._created_at,
+            user_request=self._user_request,
+            model=self._model,
+            system_prompt=self._system_prompt,
+            turns=self._turns,
+            result=self._result,
+            error=self._error,
+        )
 
     async def _persist(self, stats: ExecutionStats) -> None:
-        """Upload to GCS and save to MongoDB concurrently; each isolates its own failure."""
+        """Save the full trace (local file or GCS) and the Mongo summary concurrently."""
         async with anyio.create_task_group() as tg:
-            tg.start_soon(self._upload_to_gcs)
+            tg.start_soon(self._save_full_trace)
             tg.start_soon(self._save_to_db, stats)
 
+    async def _save_full_trace(self) -> None:
+        """Persist the full record — to `local_traces_dir` when set (debug/probe), else GCS."""
+        if self._local_traces_dir is not None:
+            path = Path(self._local_traces_dir) / f"{self.id}.json"
+            await as_async(lambda: self._write_local(path))
+        else:
+            await self._upload_to_gcs()
+
+    def _write_local(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self._build_record().model_dump(), sort_keys=False))
+
     async def _upload_to_gcs(self) -> None:
+        compressed = gzip.compress(json.dumps(self._build_record().model_dump(), sort_keys=False).encode())
+        blob_name = f"{TRACES_PREFIX}{self.id}.json.gz"
+
+        def _upload() -> None:
+            storage.Client().bucket(self._bucket_name).blob(blob_name).upload_from_string(
+                compressed, content_type="application/gzip"
+            )
+
         upload_error: str | None = None
         try:
-            record = TraceRecord(
-                id=self.id,
-                created_at=self._created_at,
-                user_request=self._user_request,
-                model=self._model,
-                system_prompt=self._system_prompt,
-                turns=self._turns,
-                result=self._result,
-                error=self._error,
-            )
-            json_bytes = json.dumps(record.model_dump(), sort_keys=False).encode()
-            compressed = gzip.compress(json_bytes)
-
-            blob_name = f"{TRACES_PREFIX}{self.id}.json.gz"
-
-            def _upload() -> None:
-                client = storage.Client()
-                bucket = client.bucket(self._bucket_name)
-                blob = bucket.blob(blob_name)
-                blob.upload_from_string(compressed, content_type="application/gzip")
-
             await as_async(_upload)
         except (GoogleAPIError, OSError) as e:
             upload_error = str(e)

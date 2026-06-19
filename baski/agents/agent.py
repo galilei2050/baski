@@ -67,6 +67,8 @@ class AgentConfig(NamedTuple):
     bucket_name: str
     system_prompt: str
     model: str = DEFAULT_MODEL
+    await_trace: bool = False  # block reply on trace persistence (tests/probe read it right after)
+    local_traces_dir: str | None = None  # write full traces here instead of GCS (tests/probe); None → GCS
 
 
 class Agent:
@@ -85,6 +87,8 @@ class Agent:
         self.anthropic_client = config.anthropic_client
         self.message_history = config.message_history
         self.toolset = config.toolset
+        self._await_trace = config.await_trace
+        self._local_traces_dir = config.local_traces_dir
         self.on_event = on_event
         # Not in message_history.turns, so truncate/delete_messages can't reach it.
         self._pinned: list[MessageParam] = []
@@ -160,7 +164,7 @@ class Agent:
 
         return ParsedResponse(tool_calls=tool_calls, text_blocks=text_blocks)
 
-    def _build_messages(self) -> list[MessageParam]:
+    async def _build_messages(self) -> list[MessageParam]:
         """Build the full message list for an API call: pinned context, then the history."""
         now = datetime.now()
         time_message = MessageParam(
@@ -169,7 +173,7 @@ class Agent:
         )
         return [
             *self._pinned,
-            *self.toolset.user_messages(),
+            *await self.toolset.user_messages(),
             time_message,
             *self.message_history.format_for_api(),
         ]
@@ -226,7 +230,7 @@ class Agent:
 
     async def _run_turn(self, stats: ExecutionStats, trace: TraceCollector) -> TurnResult:
         """Run a single agentic turn: build messages, call API, parse response, execute tools."""
-        messages = self._build_messages()
+        messages = await self._build_messages()
         trace.start_turn(messages)
 
         start = time.monotonic()
@@ -285,6 +289,7 @@ class Agent:
                 bucket_name=self.bucket_name,
                 database=self.database,
                 logger=self.logger,
+                local_traces_dir=self._local_traces_dir,
             )
         )
 
@@ -316,5 +321,7 @@ class Agent:
         )
 
         trace.finalize(stats, result)
+        if self._await_trace:
+            await trace.wait()
 
         return result
