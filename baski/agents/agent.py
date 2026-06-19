@@ -318,6 +318,7 @@ class Agent:
             turn_count=stats.turn_count,
             tool_call_count=stats.tool_calls,
             total_cost=stats.cost,
+            context_tokens=stats.last_input_tokens,
         )
 
         trace.finalize(stats, result)
