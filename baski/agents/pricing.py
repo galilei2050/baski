@@ -69,6 +69,7 @@ class ExecutionStats:
     model: str
     input_tokens: int = 0
     output_tokens: int = 0
+    last_input_tokens: int = 0  # input of the most recent API call — the current context-window size
     turn_count: int = 0
     tool_calls: int = 0
     cost: float = 0.0
@@ -77,6 +78,7 @@ class ExecutionStats:
         """Accumulate token usage and cost from a single API response."""
         self.input_tokens += usage.input_tokens
         self.output_tokens += usage.output_tokens
+        self.last_input_tokens = usage.input_tokens
         self.turn_count += 1
         self.cost += calculate_cost(self.model, usage.input_tokens, usage.output_tokens)
 

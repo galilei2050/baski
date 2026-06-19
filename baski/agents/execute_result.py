@@ -13,3 +13,4 @@ class AgentExecuteResult(BaseModel):
     turn_count: int = Field(..., description="Number of API calls (turns) in the agentic loop")
     tool_call_count: int = Field(..., description="Total number of tool calls across all turns")
     total_cost: float = Field(..., description="Total cost in USD for this execution")
+    context_tokens: int = Field(..., description="Input tokens on the last API call — the current context-window size")
