@@ -226,7 +226,7 @@ class FastAPIServer(AsyncServer):
             await self.check_health(request)
             return JSONResponse({"status": "healthy"})
 
-    def execute(self) -> int:
+    async def execute(self) -> int:
         """Launch hypercorn against the FastAPI app and run until shutdown."""
         bind = f"0.0.0.0:{self.args['port']}"
         config_opts: dict[str, Any] = {
@@ -241,5 +241,5 @@ class FastAPIServer(AsyncServer):
             config_opts["certfile"] = "cert.pem"
             config_opts["keyfile"] = "key.pem"
         config = HypercornConfig.from_mapping(**config_opts)
-        asyncio.run(serve(self.app, config))  # type: ignore[arg-type]
+        await serve(self.app, config)  # type: ignore[arg-type]
         return 0

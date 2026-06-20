@@ -143,8 +143,8 @@ class AsyncServer:
         """Make the instance callable so it can be used as a CLI entry point."""
         return self.run()
 
-    def run(self) -> int:
-        """Top-level entry: log startup, execute, swallow KeyboardInterrupt."""
+    def run(self) -> int:  # noqa: PLR0915 — startup logging + single-loop lifecycle + error handling, inline by design
+        """Top-level entry: log startup, run execute() on the process's single loop, swallow KeyboardInterrupt."""
         try:
             if self.args["cloud"]:
                 logger.warning("Start %s", self.name)
@@ -154,8 +154,16 @@ class AsyncServer:
                 logger.info("Dry run of %s complete", self.name)
                 return 0
 
-            with self.loop_executor:
-                return self.execute()
+            # One event loop for the whole process, set current before execute() builds anything: every
+            # async client (gRPC, aiohttp, …) constructed inside it binds to this loop, so a future
+            # created on it is always awaited on it. run() owns the loop; subclasses just give async work.
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                with self.loop_executor:
+                    return loop.run_until_complete(self.execute())
+            finally:
+                loop.close()
         except KeyboardInterrupt:
             logger.info("Interrupted %s", self.name)
         except Exception as err:
@@ -163,6 +171,6 @@ class AsyncServer:
             raise
         return 1
 
-    def execute(self) -> int:
-        """Subclass hook: do the actual work and return an exit code."""
+    async def execute(self) -> int:
+        """Subclass hook: do the actual async work and return an exit code. Run by run() on the process loop."""
         raise NotImplementedError("Subclass must implement execute()")
