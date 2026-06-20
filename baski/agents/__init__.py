@@ -14,7 +14,7 @@ from .events import (
     noop,
 )
 from .execute_result import AgentExecuteResult
-from .message_history import MessageHistory
+from .message_history import InMemoryMessageHistory, MessageHistory
 from .tool import Tool
 from .toolset import ToolSet
 
@@ -26,6 +26,7 @@ __all__ = [
     "AgentRefusalError",
     "Completed",
     "EventType",
+    "InMemoryMessageHistory",
     "Listener",
     "Message",
     "MessageHistory",

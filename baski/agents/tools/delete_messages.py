@@ -28,7 +28,7 @@ Tool result turns are the largest — prioritize deleting those."""
 
     async def execute(self, turn_ids: list[int]) -> str:  # type: ignore[override]
         """Delete specified turns and return removal count."""
-        removed = self.message_history.delete_turns(turn_ids)
+        removed = await self.message_history.delete_turns(turn_ids)
         return f"Deleted {removed} message(s). Remaining: {len(self.message_history)} messages."
 
     def system_prompt(self) -> str:
