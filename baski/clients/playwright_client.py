@@ -7,6 +7,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Self
 
+import trafilatura
 from bs4 import BeautifulSoup
 from httpx import HTTPStatusError
 from httpx import Request as HttpxRequest
@@ -179,6 +180,19 @@ _STRIP_TAGS = ("script", "style", "meta", "link", "noscript", "iframe", "nav", "
 
 
 def _html_to_markdown(html: str) -> str:
+    """Extract the main article as markdown, dropping nav/ads/cookie banners/boilerplate.
+
+    trafilatura keeps the main-content node and discards the rest by default — far better
+    than a tag blocklist, which can't catch ads/cookie/share widgets. It returns None when
+    there's no clear main content (search-result pages, SPAs, sparse pages); fall back to
+    selector stripping so those still yield something.
+    """
+    extracted = trafilatura.extract(html, output_format="markdown", include_images=False)
+    return extracted or _strip_to_markdown(html)
+
+
+def _strip_to_markdown(html: str) -> str:
+    """Fallback extractor: strip known boilerplate tags/selectors, convert the rest to markdown."""
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(_STRIP_TAGS):
         tag.decompose()
