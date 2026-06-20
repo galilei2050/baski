@@ -1,7 +1,7 @@
-"""Conversation history management with context-window truncation."""
+"""Conversation history: the Protocol the Agent depends on, plus an in-memory implementation."""
 
 from dataclasses import dataclass, field
-from typing import Self
+from typing import Protocol, Self
 
 from anthropic.types import ContentBlock, MessageParam, TextBlockParam, ToolResultBlockParam, Usage
 
@@ -16,8 +16,62 @@ class Turn:
     messages: list[MessageParam] = field(default_factory=list)
 
 
-class MessageHistory:
-    """Ordered conversation history with automatic context-window truncation."""
+class MessageHistory(Protocol):
+    """The transcript interface the Agent drives — it owns no persistence of its own.
+
+    The Agent reads `turns`/`max_tokens`, appends through the context manager + `add_*`, formats
+    with `format_for_api`, and trims with `truncate`. `InMemoryMessageHistory` is the default,
+    volatile implementation. A caller that needs durability supplies its OWN implementation of this
+    Protocol (e.g. Mongo-backed) rather than subclassing the in-memory one and patching it — that is
+    what kept in-memory trims (`truncate`, `delete_turns`) from ever reaching the durable store.
+    """
+
+    turns: list[Turn]  # the committed turns, oldest first — the active transcript
+    max_tokens: int  # context-window budget the truncation policy aims at
+
+    def __len__(self) -> int:
+        """Number of committed turns."""
+        ...
+
+    def __enter__(self) -> Self:
+        """Open a new turn to collect the messages of one agentic round."""
+        ...
+
+    def __exit__(self, *args: object) -> None:
+        """Commit the open turn to the transcript if it has any messages."""
+        ...
+
+    def add_assistant(self, content_blocks: list[ContentBlock]) -> None:
+        """Append the assistant's message (text/tool_use/thinking blocks) to the open turn."""
+        ...
+
+    def add_tool_results(self, results: list[ToolResultBlockParam]) -> None:
+        """Append the tool_result blocks for this round to the open turn."""
+        ...
+
+    def add_user_text(self, text: str) -> None:
+        """Append a plain user-text message to the open turn."""
+        ...
+
+    def format_for_api(self) -> list[MessageParam]:
+        """Render the transcript as the message list for the Anthropic API."""
+        ...
+
+    def truncate(self, usage: Usage) -> None:
+        """Drop oldest turns when the latest input-token usage exceeds the budget."""
+        ...
+
+    async def delete_turns(self, turn_ids: list[int]) -> int:
+        """Remove whole turns by id; async so a durable implementation can persist the removal."""
+        ...
+
+
+class InMemoryMessageHistory(MessageHistory):
+    """Ordered conversation history with automatic context-window truncation.
+
+    Volatile — turns live only for the process. Correct as a pure in-memory transcript; durable
+    transcripts are separate implementations of `MessageHistory`, never subclasses of this one.
+    """
 
     def __init__(
         self,
@@ -56,7 +110,7 @@ class MessageHistory:
     def _turn(self) -> Turn:
         """Return the active turn, raising if used outside the context manager."""
         if self._current_turn is None:
-            raise RuntimeError("No active turn; use MessageHistory as a context manager first")
+            raise RuntimeError("No active turn; use the history as a context manager first")
         return self._current_turn
 
     def add_assistant(self, content_blocks: list[ContentBlock]) -> None:
@@ -112,7 +166,7 @@ class MessageHistory:
 
         return result
 
-    def delete_turns(self, turn_ids: list[int]) -> int:
+    async def delete_turns(self, turn_ids: list[int]) -> int:
         """Remove entire turns by ID."""
         ids_to_remove = set(turn_ids)
         original = len(self.turns)
