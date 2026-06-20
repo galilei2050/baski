@@ -43,6 +43,7 @@ dependencies = [
     "pulumi",
     "pulumi-gcp",
     "gitpython",
+    "trafilatura>=2.1.0",
 ]
 
 [dependency-groups]
