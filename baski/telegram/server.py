@@ -2,7 +2,6 @@
 
 import abc
 import argparse
-import asyncio
 import json
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
@@ -96,21 +95,18 @@ class TelegramServer(AsyncServer):
         parser.add_argument("--webhook-url", default=str(get_env("WEBHOOK_URL", "")), help="Public webhook URL")
         parser.add_argument("--token", default=str(get_env("TELEGRAM_TOKEN", "")), help="Telegram bot token")
 
-    def execute(self) -> int:
+    async def execute(self) -> int:
         """Run the server in webhook or polling mode based on `--cloud`."""
         if self.args["cloud"]:
-            return self._run_webhook()
-        return self._run_polling()
+            return await self._run_webhook()
+        return await self._run_polling()
 
-    def _run_polling(self) -> int:
-        async def main() -> None:
-            await self.bot.delete_webhook(drop_pending_updates=False)
-            await self.dp.start_polling(self.bot)
-
-        asyncio.run(main())
+    async def _run_polling(self) -> int:
+        await self.bot.delete_webhook(drop_pending_updates=False)
+        await self.dp.start_polling(self.bot)
         return 0
 
-    def _run_webhook(self) -> int:  # noqa: PLR0915 — wires startup + webhook/worker/ping routes inline
+    async def _run_webhook(self) -> int:  # noqa: PLR0915 — wires startup + webhook/worker/ping routes inline
         webhook_url = self.args["webhook_url"]
         parsed = urlparse(webhook_url)
         path = parsed.path or "/webhook"
@@ -161,5 +157,5 @@ class TelegramServer(AsyncServer):
 
         bind = f"0.0.0.0:{self.args['port']}"
         config = HypercornConfig.from_mapping(bind=[bind], accesslog=None)
-        asyncio.run(serve(app, config))  # type: ignore[arg-type]
+        await serve(app, config)  # type: ignore[arg-type]
         return 0
