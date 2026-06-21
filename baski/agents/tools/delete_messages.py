@@ -31,7 +31,7 @@ Tool result turns are the largest — prioritize deleting those."""
         removed = await self.message_history.delete_turns(turn_ids)
         return f"Deleted {removed} message(s). Remaining: {len(self.message_history)} messages."
 
-    def system_prompt(self) -> str:
+    async def system_prompt(self) -> str:
         """Instructions telling the agent to free context after storing knowledge."""
         return (
             "CONTEXT MANAGEMENT: After storing knowledge, delete the source turns with "

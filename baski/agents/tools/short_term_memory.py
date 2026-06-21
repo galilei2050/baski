@@ -115,7 +115,7 @@ Use aggressively - store first, synthesize later. More is better than perfect.""
             content=[TextBlockParam(type="text", text="\n".join(parts))],
         )
 
-    def system_prompt(self) -> str:
+    async def system_prompt(self) -> str:
         """Instructions telling the agent to preserve facts proactively."""
         return (
             f"IMPORTANT: Use {self.name} proactively to preserve important information.\n"
