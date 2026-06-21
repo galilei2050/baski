@@ -262,7 +262,7 @@ class Agent:
 
         stats.collect(message.usage)
         await self.on_event(TurnStarted(turn=stats.turn_count))
-        if len(self.message_history) == 0 and stats.last_input_tokens > self.message_history.max_tokens // 2:
+        if self.message_history.initial_context_too_large(stats.last_input_tokens):
             raise RuntimeError("Initial context is too large. Try to provide more LLM context.")
 
         self.message_history.truncate(message.usage)
