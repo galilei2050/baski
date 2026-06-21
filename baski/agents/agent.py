@@ -93,10 +93,9 @@ class Agent:
         # Not in message_history.turns, so truncate/delete_messages can't reach it.
         self._pinned: list[MessageParam] = []
 
-        system = f"{config.system_prompt}\n\n{self.toolset.system_prompt()}\n\n{AGENT_LOOP_GUIDANCE}"
+        self._system_prompt = config.system_prompt
 
         self.params: dict[str, object] = {
-            "system": system,
             "model": config.model,
             "tools": self.toolset.format_for_api(),
             "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
@@ -111,6 +110,10 @@ class Agent:
     def add_pinned_text(self, text: str) -> None:
         """Pin a plain user-text message (e.g. a one-shot task framed for the model)."""
         self.add_pinned(MessageParam(role="user", content=[TextBlockParam(type="text", text=text)]))
+
+    async def _system(self) -> str:
+        """Assemble the system prompt fresh — tool contributions (e.g. owner preferences) can change per turn."""
+        return f"{self._system_prompt}\n\n{await self.toolset.system_prompt()}\n\n{AGENT_LOOP_GUIDANCE}"
 
     async def _stream_message(self, messages: list[MessageParam]) -> Message:
         """Stream one response, emitting each text delta to the listener; return the assembled message."""
@@ -240,6 +243,7 @@ class Agent:
         trace.start_turn(messages)
 
         start = time.monotonic()
+        self.params["system"] = await self._system()  # reassembled each turn; tool guidance can be live
         message = await self._call_api(messages)
         api_duration_ms = int((time.monotonic() - start) * 1000)
 
@@ -291,7 +295,7 @@ class Agent:
             config=TraceCollectorConfig(
                 user_request=label,
                 model=str(self.params["model"]),
-                system_prompt=str(self.params["system"]),
+                system_prompt=await self._system(),
                 bucket_name=self.bucket_name,
                 database=self.database,
                 logger=self.logger,

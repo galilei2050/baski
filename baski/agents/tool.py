@@ -46,8 +46,13 @@ class Tool(ABC):
             input_schema=self.input_schema,
         )
 
-    def system_prompt(self) -> str:
-        """Extra instructions this tool adds to the agent system prompt. None by default."""
+    async def system_prompt(self) -> str:
+        """Extra instructions this tool adds to the agent system prompt, or "" for none.
+
+        Async and re-read every turn (symmetric with `user_message`), so a tool whose guidance
+        depends on live state — e.g. owner preferences loaded from a store — can return current
+        content each turn rather than a value frozen at build time.
+        """
         return ""
 
     async def user_message(self) -> MessageParam | None:

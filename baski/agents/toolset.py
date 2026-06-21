@@ -48,8 +48,12 @@ class ToolSet:
         """Remove a tool from the toolset by name."""
         self._tools.pop(tool_name, None)
 
-    def system_prompt(self) -> str:
-        """The tool roster plus each tool's own prompt contribution, for the system prompt."""
+    async def system_prompt(self) -> str:
+        """The tool roster plus each tool's own prompt contribution, for the system prompt.
+
+        Async and aggregated every turn (like `user_messages`), so tools whose guidance is live
+        (e.g. owner preferences from a store) contribute fresh content each turn.
+        """
         if not self._tools:
             return "No tools available"
 
@@ -58,7 +62,7 @@ class ToolSet:
             roster.append(f"{i}. {tool.one_line} ({tool.name})")
 
         sections = ["\n".join(roster)]
-        sections.extend(c for tool in self._tools.values() if (c := tool.system_prompt()))
+        sections.extend([c for tool in self._tools.values() if (c := await tool.system_prompt())])
         return "\n\n".join(sections)
 
     async def user_messages(self) -> list[MessageParam]:
