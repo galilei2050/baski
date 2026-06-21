@@ -12,7 +12,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from baski.primitives import datetime
 from baski.server import Logger
 
-from .events import Completed, Listener, Thinking, ToolFinished, ToolStarted, TurnStarted, noop
+from .events import Completed, Listener, TextDelta, Thinking, ToolFinished, ToolStarted, TurnStarted, noop
 from .events import Message as MessageEvent
 from .execute_result import AgentExecuteResult
 from .message_history import MessageHistory
@@ -112,6 +112,16 @@ class Agent:
         """Pin a plain user-text message (e.g. a one-shot task framed for the model)."""
         self.add_pinned(MessageParam(role="user", content=[TextBlockParam(type="text", text=text)]))
 
+    async def _stream_message(self, messages: list[MessageParam]) -> Message:
+        """Stream one response, emitting each text delta to the listener; return the assembled message."""
+        async with self.anthropic_client.messages.stream(
+            messages=messages,
+            **self.params,  # type: ignore[arg-type]  # params is a dynamic dict merged with caller overrides
+        ) as stream:
+            async for text in stream.text_stream:
+                await self.on_event(TextDelta(text=text))
+            return await stream.get_final_message()
+
     async def _call_api(self, messages: list[MessageParam]) -> Message:
         """Streaming API call with retry on api_error (max 1 retry, 2s sleep).
 
@@ -123,11 +133,7 @@ class Agent:
 
         while retry_count <= max_retries:
             try:
-                async with self.anthropic_client.messages.stream(
-                    messages=messages,
-                    **self.params,  # type: ignore[arg-type]  # params is a dynamic dict merged with caller overrides
-                ) as stream:
-                    message = await stream.get_final_message()
+                message = await self._stream_message(messages)
             except APIStatusError as e:
                 if retry_count < max_retries and "api_error" in str(e):
                     retry_count += 1

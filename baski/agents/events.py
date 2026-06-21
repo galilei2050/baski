@@ -16,6 +16,7 @@ class EventType(StrEnum):
 
     TURN_STARTED = "turn_started"
     THINKING = "thinking"
+    TEXT_DELTA = "text_delta"
     MESSAGE = "message"
     TOOL_STARTED = "tool_started"
     TOOL_FINISHED = "tool_finished"
@@ -33,6 +34,13 @@ class Thinking(BaseModel):
     """The model produced extended-thinking text this turn (may be long)."""
 
     type: EventType = EventType.THINKING
+    text: str
+
+
+class TextDelta(BaseModel):
+    """A chunk of assistant text as it streams from the model (token-level, before the turn ends)."""
+
+    type: EventType = EventType.TEXT_DELTA
     text: str
 
 
@@ -67,7 +75,7 @@ class Completed(BaseModel):
     response: str | None
 
 
-AgentEvent = TurnStarted | Thinking | Message | ToolStarted | ToolFinished | Completed
+AgentEvent = TurnStarted | Thinking | TextDelta | Message | ToolStarted | ToolFinished | Completed
 
 # A listener is any async callable that consumes one event. Compose several by
 # wrapping them in one function; the agent takes a single listener for simplicity.
