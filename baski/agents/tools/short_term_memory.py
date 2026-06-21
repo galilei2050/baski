@@ -24,31 +24,26 @@ def _coerce_facts(value: object) -> object:
 class ShortTermMemory(Tool):
     """Tool for agent to store knowledge gathered during conversation."""
 
-    name = "store_memory"
-    one_line = "Lightweight tool to preserve context (USE FREQUENTLY)"
-    description = """Store facts you discover during research to preserve them when conversation context gets truncated.
+    name = "working_note"
+    one_line = "WORKING MEMORY: jot a fact to this reply's scratchpad, cleared after the reply (USE FREQUENTLY)"
+    description = """WORKING MEMORY — a scratchpad for THIS reply only; it is cleared once the reply ends.
+Stash facts the moment you find them so they survive when the conversation context gets truncated mid-task.
 
-CRITICAL: This is a lightweight, fast operation. Use it extensively.
+NOT durable: to keep knowledge across future conversations, save it to long-term memory instead.
+
+CRITICAL: lightweight and fast — use it extensively.
 
 WHEN TO USE (frequently):
-- Immediately after extracting facts from any source
+- Immediately after extracting facts from any source or tool call
 - When you find conflicting information between sources
-- After every tool call that returns useful data
-- When noticing patterns, conflicts, or insights
-- After completing research on a specific topic (team, traction, market)
 - BEFORE you lose access to the information
 
 WHAT TO STORE:
-- Key facts, data points, and metrics from any source
-- Relationships and connections between entities
-- Observations, patterns, and discrepancies
-- Source attributions for critical claims
-- Context that might be needed later
+- Key facts, data points, metrics, relationships, observations, source attributions
+- Anything you'll need later this reply to synthesize the answer
 
 WHY THIS EXISTS:
-- Tool outputs disappear after a few turns
-- You need facts available to synthesize final reports later
-- Knowledge costs ~4k tokens vs 30k+ for keeping full sources
+- Tool outputs disappear after a few turns; a note costs ~4k tokens vs 30k+ for keeping full sources
 
 FACT FORMULATION FORMAT: [SOURCE] entity + fact + temporal context
 
@@ -84,7 +79,9 @@ Use aggressively - store first, synthesize later. More is better than perfect.""
         self.knowledge.extend(facts)
         stored = len(facts)
         total = len(self.knowledge)
-        return f"Stored {stored} fact(s). Total: {total}. Now delete source turns with Tool: delete_messages."
+        return (
+            f"Noted {stored} fact(s) to working memory. Total: {total}. Now prune source turns with prune_transcript."
+        )
 
     def dump(self) -> None:
         """Dump knowledge to markdown file (CLI only)."""
@@ -102,12 +99,16 @@ Use aggressively - store first, synthesize later. More is better than perfect.""
 
     async def user_message(self) -> MessageParam:
         """Format all knowledge as the per-turn user block injected at the top of the prompt."""
-        parts = [f"IMPORTANT: Use {self.name} tool immediately after learning ANY new information to prevent loss.", ""]
+        parts = [
+            f"WORKING MEMORY — this reply's scratchpad (cleared after the reply). Use {self.name} the "
+            "moment you learn anything, so it survives context truncation.",
+            "",
+        ]
 
         if not self.knowledge:
-            parts.append("No knowledge stored yet.")
+            parts.append("(empty)")
         else:
-            parts.append("Knowledge:")
+            parts.append("Notes:")
             parts.extend(f"- {k}" for k in self.knowledge)
 
         return MessageParam(
@@ -118,6 +119,7 @@ Use aggressively - store first, synthesize later. More is better than perfect.""
     async def system_prompt(self) -> str:
         """Instructions telling the agent to preserve facts proactively."""
         return (
-            f"IMPORTANT: Use {self.name} proactively to preserve important information.\n"
-            f"Store knowledge immediately after learning new facts to prevent loss during conversation."
+            f"WORKING MEMORY: use {self.name} proactively to preserve facts before context truncation; "
+            f"it is cleared after each reply. For durable knowledge that must survive across conversations, "
+            f"use your long-term memory tool instead."
         )

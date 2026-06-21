@@ -90,7 +90,7 @@ class Agent:
         self._await_trace = config.await_trace
         self._local_traces_dir = config.local_traces_dir
         self.on_event = on_event
-        # Not in message_history.turns, so truncate/delete_messages can't reach it.
+        # Not in message_history.turns, so truncate/prune_transcript can't reach it.
         self._pinned: list[MessageParam] = []
 
         self._system_prompt = config.system_prompt

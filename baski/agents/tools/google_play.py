@@ -11,8 +11,8 @@ from ..tool import Tool
 class GooglePlayTool(Tool):
     """Tool for fetching Google Play developer apps via SerpApi."""
 
-    name = "fetch_google_play_data"
-    one_line = "Fetch Google Play developer apps"
+    name = "google_play_app"
+    one_line = "Fetch a Google Play developer's app listings by developer ID"
     description = (
         "Fetch Google Play developer apps and data using developer ID. Returns list of apps published by the developer."
     )

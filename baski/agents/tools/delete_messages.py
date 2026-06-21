@@ -9,13 +9,14 @@ from ..tool import Tool
 class DeleteMessagesTool(Tool):
     """Tool for agent to delete specific messages from conversation history."""
 
-    name = "delete_messages"
-    one_line = "Delete old messages to free context window"
-    description = """Delete turns from conversation history by [Turn N] IDs visible in messages.
+    name = "prune_transcript"
+    one_line = "Drop old conversation turns from the context window (does NOT touch any memory tier)"
+    description = """Prune turns from the conversation transcript by their [Turn N] IDs visible in messages.
+This only trims the live context window — it does NOT delete from memory (use a memory tool for that).
 
-Use after store_memory to remove turns whose content is already preserved.
-Old search results may contain outdated info — delete to avoid misleading context.
-Tool result turns are the largest — prioritize deleting those."""
+Use after working_note to drop turns whose content you've already preserved.
+Old search results may contain outdated info — prune to avoid misleading context.
+Tool-result turns are the largest — prioritize pruning those."""
 
     class Input(BaseModel):
         """Arguments for deleting conversation turns."""
@@ -34,7 +35,7 @@ Tool result turns are the largest — prioritize deleting those."""
     async def system_prompt(self) -> str:
         """Instructions telling the agent to free context after storing knowledge."""
         return (
-            "CONTEXT MANAGEMENT: After storing knowledge, delete the source turns with "
-            "delete_messages to free context space.\n"
-            "Workflow: search → store_memory → delete_messages for the turns you just stored."
+            "CONTEXT MANAGEMENT: after saving knowledge, prune the source turns with "
+            "prune_transcript to free context space.\n"
+            "Workflow: search → working_note → prune_transcript for the turns you just saved."
         )

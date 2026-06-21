@@ -11,8 +11,8 @@ from ..tool import Tool
 class AppleAppStoreTool(Tool):
     """Tool for fetching Apple App Store data via SerpApi."""
 
-    name = "fetch_app_store_data"
-    one_line = "Fetch Apple App Store data"
+    name = "app_store_app"
+    one_line = "Fetch an app's Apple App Store listing"
     description = (
         "Fetch Apple App Store data by searching for company/app name. "
         "Returns app information including title, rating, developer, and description."

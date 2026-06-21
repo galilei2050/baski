@@ -15,8 +15,8 @@ Ported from clarity-auto-care; the generic core lives here so other projects (e.
 ## Built-in Tools (`tools/`)
 
 The caller wires these into the `ToolSet` (not auto-injected):
-- `ShortTermMemory` (`store_memory`): per-run fact scratchpad; injects its facts via `user_message()`.
-- `DeleteMessagesTool` (`delete_messages`): drop turns by id; built with the shared `MessageHistory`.
+- `ShortTermMemory` (`working_note`): WORKING MEMORY — per-reply fact scratchpad; injects its facts via `user_message()`.
+- `DeleteMessagesTool` (`prune_transcript`): drop turns by id; built with the shared `MessageHistory`.
 - `GoogleSearchTool`, `YelpSearchTool`, `GooglePlayTool`, `AppleAppStoreTool` (SerpApi), `WebBrowseTool` (Playwright).
 
 Project-specific tools stay in the consuming project, NOT here. Canonical assembly: nisse `app/assistant/assistant.py`.
