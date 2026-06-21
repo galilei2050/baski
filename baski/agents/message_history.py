@@ -80,11 +80,9 @@ class MessageHistory(Protocol):
 
     @property
     def turns(self) -> Sequence[Turn]:
-        """Committed turns, oldest first — read-only; the implementation owns all mutation.
+        """Committed turns, oldest first — read-only; mutate only through the contract methods.
 
-        Read-only (a `Sequence`, no setter) so callers mutate only through the contract methods
-        (`__enter__`/`add_*`/`truncate`/`delete_turns`); also covariant, so an implementation may
-        store a `list` of a `Turn` subclass.
+        Covariant `Sequence`, so an implementation may store a `list` of a `Turn` subclass.
         """
         ...
 
@@ -127,8 +125,7 @@ class MessageHistory(Protocol):
     def initial_context_too_large(self, input_tokens: int) -> bool:
         """True when the transcript is empty yet the first request already exceeds half the budget.
 
-        Owns the budget so it isn't exposed: the agent raises on this rather than running a session
-        whose system/tool/pinned prefix is so large no history would ever fit.
+        Keeps the budget encapsulated — the agent raises on this instead of reading the limit.
         """
         ...
 
