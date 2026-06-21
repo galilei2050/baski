@@ -3,9 +3,60 @@
 from dataclasses import dataclass, field
 from typing import Protocol, Self
 
-from anthropic.types import ContentBlock, MessageParam, TextBlockParam, ToolResultBlockParam, Usage
+from anthropic.types import (
+    CacheControlEphemeralParam,
+    ContentBlock,
+    MessageParam,
+    TextBlockParam,
+    ToolResultBlockParam,
+    Usage,
+)
+from pydantic import BaseModel
 
 from baski.server.logger import Logger
+
+from .pricing import effective_input_tokens
+
+EPHEMERAL_CACHE = CacheControlEphemeralParam(type="ephemeral")
+
+
+_UNCACHEABLE_BLOCKS = {"thinking", "redacted_thinking"}  # these param types have no cache_control field
+
+
+def _block_type(block: object) -> str | None:
+    """The Anthropic `type` discriminator, whether the block is an SDK model or a plain dict."""
+    if isinstance(block, BaseModel):
+        return getattr(block, "type", None)
+    return block.get("type") if isinstance(block, dict) else None
+
+
+def mark_cached(message: MessageParam) -> MessageParam:
+    """Copy `message` with a prompt-cache breakpoint on its last cacheable content block.
+
+    Copy-safe (never mutates the input — a mutated stored turn would persist `cache_control`). Skips
+    trailing thinking blocks, which carry no `cache_control` field.
+    """
+    content = message["content"]
+    if not isinstance(content, list) or not content:
+        return message
+    blocks = list(content)
+    idx = next((i for i in reversed(range(len(blocks))) if _block_type(blocks[i]) not in _UNCACHEABLE_BLOCKS), -1)
+    if idx < 0:
+        return message
+    block = blocks[idx]
+    blocks[idx] = (block.model_dump() if isinstance(block, BaseModel) else dict(block)) | {
+        "cache_control": EPHEMERAL_CACHE
+    }
+    return MessageParam(role=message["role"], content=blocks)
+
+
+def context_status(last_input_tokens: int, max_tokens: int) -> MessageParam | None:
+    """The `[Context: N% used]` footer block (volatile — rides after the cache breakpoint), or None."""
+    if not last_input_tokens:
+        return None
+    pct = int(last_input_tokens / max_tokens * 100)
+    text = f"[Context: {pct}% used — {max_tokens - last_input_tokens:,} tokens remaining]"
+    return MessageParam(role="user", content=[TextBlockParam(type="text", text=text)])
 
 
 @dataclass
@@ -54,7 +105,11 @@ class MessageHistory(Protocol):
         ...
 
     def format_for_api(self) -> list[MessageParam]:
-        """Render the transcript as the message list for the Anthropic API."""
+        """Render the transcript as the message list for the Anthropic API (cache breakpoint on the last turn)."""
+        ...
+
+    def context_status(self) -> MessageParam | None:
+        """Volatile context-usage footer, appended AFTER the cache breakpoint (or None if no data yet)."""
         ...
 
     def truncate(self, usage: Usage) -> None:
@@ -141,30 +196,19 @@ class InMemoryMessageHistory(MessageHistory):
         )
 
     def format_for_api(self) -> list[MessageParam]:
-        """Return messages ready for API with [Turn N] markers on user messages."""
+        """Return messages ready for API with [Turn N] markers, cache breakpoint on the last turn."""
         result = []
         for turn in self.turns:
             result.append(MessageParam(role="user", content=[TextBlockParam(type="text", text=f"[Turn {turn.id}]")]))
             result.extend(turn.messages)
 
-        if self._last_input_tokens:
-            pct = int(self._last_input_tokens / self.max_tokens * 100)
-            result.append(
-                MessageParam(
-                    role="user",
-                    content=[
-                        TextBlockParam(
-                            type="text",
-                            text=(
-                                f"[Context: {pct}% used"
-                                f" — {self.max_tokens - self._last_input_tokens:,} tokens remaining]"
-                            ),
-                        )
-                    ],
-                )
-            )
-
+        if result:
+            result[-1] = mark_cached(result[-1])
         return result
+
+    def context_status(self) -> MessageParam | None:
+        """The context-usage footer, rendered by the shared helper from this history's counters."""
+        return context_status(self._last_input_tokens, self.max_tokens)
 
     async def delete_turns(self, turn_ids: list[int]) -> int:
         """Remove entire turns by ID."""
@@ -183,8 +227,9 @@ class InMemoryMessageHistory(MessageHistory):
 
     def truncate(self, usage: Usage) -> None:
         """Remove the oldest turns when threshold exceeded."""
-        self._last_input_tokens = usage.input_tokens
-        if usage.input_tokens < int(self.max_tokens * self.truncate_threshold) or not self.turns:
+        context_tokens = effective_input_tokens(usage)
+        self._last_input_tokens = context_tokens
+        if context_tokens < int(self.max_tokens * self.truncate_threshold) or not self.turns:
             return
 
         turns_to_remove = max(int(len(self.turns) * self.truncate_percentage), 1)
@@ -194,7 +239,7 @@ class InMemoryMessageHistory(MessageHistory):
         self.logger.info(
             "Truncated message history",
             labels={
-                "inputTokens": usage.input_tokens,
+                "inputTokens": context_tokens,
                 "maxTokens": self.max_tokens,
                 "threshold": self.max_tokens * self.truncate_threshold,
                 "turnsRemoved": initial_count - len(self.turns),

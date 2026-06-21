@@ -15,7 +15,7 @@ from baski.server import Logger
 from .events import Completed, Listener, TextDelta, Thinking, ToolFinished, ToolStarted, TurnStarted, noop
 from .events import Message as MessageEvent
 from .execute_result import AgentExecuteResult
-from .message_history import MessageHistory
+from .message_history import EPHEMERAL_CACHE, MessageHistory
 from .pricing import ExecutionStats
 from .toolset import ToolSet
 from .trace import TraceCollector, TraceCollectorConfig
@@ -95,9 +95,15 @@ class Agent:
 
         self._system_prompt = config.system_prompt
 
+        # Cache tools and system on separate breakpoints, so editing the system (e.g. core memory)
+        # doesn't evict the stabler tool-schema cache. (System breakpoint set per-turn in _run_turn.)
+        tools = self.toolset.format_for_api()
+        if tools:
+            tools[-1]["cache_control"] = EPHEMERAL_CACHE
+
         self.params: dict[str, object] = {
             "model": config.model,
-            "tools": self.toolset.format_for_api(),
+            "tools": tools,
             "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
             "thinking": {"type": "adaptive"},
             "max_tokens": 128_000,
@@ -180,11 +186,17 @@ class Agent:
             role="user",
             content=[TextBlockParam(type="text", text=f"Current time: {now.strftime('%A, %B %d, %Y %I:%M %p %Z')}")],
         )
+        # Stable prefix (pinned + history, cache breakpoint on the last turn) first; volatile blocks
+        # after it so they don't invalidate the cache: context footer, per-turn user_message()
+        # injections, then time (changes every minute).
+        history = self.message_history.format_for_api()
+        status = self.message_history.context_status()
         return [
             *self._pinned,
+            *history,
+            *([status] if status else []),
             *await self.toolset.user_messages(),
             time_message,
-            *self.message_history.format_for_api(),
         ]
 
     async def _execute_tools(
@@ -243,13 +255,14 @@ class Agent:
         trace.start_turn(messages)
 
         start = time.monotonic()
-        self.params["system"] = await self._system()  # reassembled each turn; tool guidance can be live
+        # Reassembled each turn — tool guidance can be live.
+        self.params["system"] = [TextBlockParam(type="text", text=await self._system(), cache_control=EPHEMERAL_CACHE)]
         message = await self._call_api(messages)
         api_duration_ms = int((time.monotonic() - start) * 1000)
 
         stats.collect(message.usage)
         await self.on_event(TurnStarted(turn=stats.turn_count))
-        if len(self.message_history) == 0 and message.usage.input_tokens > self.message_history.max_tokens // 2:
+        if len(self.message_history) == 0 and stats.last_input_tokens > self.message_history.max_tokens // 2:
             raise RuntimeError("Initial context is too large. Try to provide more LLM context.")
 
         self.message_history.truncate(message.usage)

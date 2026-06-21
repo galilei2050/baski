@@ -29,4 +29,6 @@ Project-specific tools stay in the consuming project, NOT here. Canonical assemb
 
 - Tracing is mandatory: every `execute()` requires a Mongo `database` and a GCS `bucket_name`.
 - Extended thinking is `adaptive`; parallel tool use enabled; `max_tokens=128_000`.
+- **Prompt caching**: cache breakpoints set in `agent.py` (tools, system) and `format_for_api` (history, via `mark_cached`). Invariant when adding anything to the prompt — volatile/per-turn content (time, context footer, `user_message()` injections) must go AFTER the last breakpoint; keep it in `_build_messages`' trailing section, never inside `format_for_api`. `mark_cached` must stay copy-safe (mutating a stored turn would persist `cache_control`).
+- Size context only via `pricing.effective_input_tokens` — caching hides cached tokens from `usage.input_tokens`, so a `truncate` reading it raw never trims.
 - The clarity FastAPI trace-browser router was NOT ported — deployment-specific. Add a thin router in the consuming project if a trace UI is needed.

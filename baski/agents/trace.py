@@ -86,6 +86,8 @@ class TurnRecord(BaseModel):
     tool_results: list[ToolResultRecord] = []
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
     duration_ms: int = 0
     stop_reason: str = ""
 
@@ -163,6 +165,8 @@ class TraceCollector:
         turn = self._turn
         turn.input_tokens = message.usage.input_tokens
         turn.output_tokens = message.usage.output_tokens
+        turn.cache_read_tokens = message.usage.cache_read_input_tokens or 0
+        turn.cache_creation_tokens = message.usage.cache_creation_input_tokens or 0
         turn.stop_reason = message.stop_reason or ""
 
         for block in message.content:
