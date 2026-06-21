@@ -1,5 +1,6 @@
 """Conversation history: the Protocol the Agent depends on, plus an in-memory implementation."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, Self
 
@@ -77,8 +78,13 @@ class MessageHistory(Protocol):
     what kept in-memory trims (`truncate`, `delete_turns`) from ever reaching the durable store.
     """
 
-    turns: list[Turn]  # the committed turns, oldest first — the active transcript
-    max_tokens: int  # context-window budget the truncation policy aims at
+    @property
+    def turns(self) -> Sequence[Turn]:
+        """Committed turns, oldest first — read-only; mutate only through the contract methods.
+
+        Covariant `Sequence`, so an implementation may store a `list` of a `Turn` subclass.
+        """
+        ...
 
     def __len__(self) -> int:
         """Number of committed turns."""
@@ -116,6 +122,13 @@ class MessageHistory(Protocol):
         """Drop oldest turns when the latest input-token usage exceeds the budget."""
         ...
 
+    def initial_context_too_large(self, input_tokens: int) -> bool:
+        """True when the transcript is empty yet the first request already exceeds half the budget.
+
+        Keeps the budget encapsulated — the agent raises on this instead of reading the limit.
+        """
+        ...
+
     async def delete_turns(self, turn_ids: list[int]) -> int:
         """Remove whole turns by id; async so a durable implementation can persist the removal."""
         ...
@@ -136,7 +149,7 @@ class InMemoryMessageHistory(MessageHistory):
         truncate_percentage: float = 0.3,
     ) -> None:
         """Initialize with configurable token limits and truncation policy."""
-        self.turns: list[Turn] = []
+        self._turns: list[Turn] = []
         self.max_tokens = max_tokens
         self.truncate_threshold = truncate_threshold
         self.truncate_percentage = truncate_percentage
@@ -145,9 +158,14 @@ class InMemoryMessageHistory(MessageHistory):
         self._current_turn: Turn | None = None
         self._last_input_tokens: int = 0
 
+    @property
+    def turns(self) -> Sequence[Turn]:
+        """Committed turns, oldest first — read-only; mutation goes through the contract methods."""
+        return self._turns
+
     def __len__(self) -> int:
         """Return the number of recorded turns."""
-        return len(self.turns)
+        return len(self._turns)
 
     def __enter__(self) -> Self:
         """Begin a new turn, assigning the next sequential ID."""
@@ -158,7 +176,7 @@ class InMemoryMessageHistory(MessageHistory):
     def __exit__(self, *args: object) -> None:
         """Commit the current turn to history if it contains messages."""
         if self._current_turn and self._current_turn.messages:
-            self.turns.append(self._current_turn)
+            self._turns.append(self._current_turn)
         self._current_turn = None
 
     @property
@@ -198,7 +216,7 @@ class InMemoryMessageHistory(MessageHistory):
     def format_for_api(self) -> list[MessageParam]:
         """Return messages ready for API with [Turn N] markers, cache breakpoint on the last turn."""
         result = []
-        for turn in self.turns:
+        for turn in self._turns:
             result.append(MessageParam(role="user", content=[TextBlockParam(type="text", text=f"[Turn {turn.id}]")]))
             result.extend(turn.messages)
 
@@ -210,12 +228,16 @@ class InMemoryMessageHistory(MessageHistory):
         """The context-usage footer, rendered by the shared helper from this history's counters."""
         return context_status(self._last_input_tokens, self.max_tokens)
 
+    def initial_context_too_large(self, input_tokens: int) -> bool:
+        """True when the transcript is empty yet the first request already exceeds half the budget."""
+        return not self._turns and input_tokens > self.max_tokens // 2
+
     async def delete_turns(self, turn_ids: list[int]) -> int:
         """Remove entire turns by ID."""
         ids_to_remove = set(turn_ids)
-        original = len(self.turns)
-        self.turns = [t for t in self.turns if t.id not in ids_to_remove]
-        removed = original - len(self.turns)
+        original = len(self._turns)
+        self._turns = [t for t in self._turns if t.id not in ids_to_remove]
+        removed = original - len(self._turns)
         self.logger.info(
             "Messages deleted by agent",
             labels={
@@ -229,12 +251,12 @@ class InMemoryMessageHistory(MessageHistory):
         """Remove the oldest turns when threshold exceeded."""
         context_tokens = effective_input_tokens(usage)
         self._last_input_tokens = context_tokens
-        if context_tokens < int(self.max_tokens * self.truncate_threshold) or not self.turns:
+        if context_tokens < int(self.max_tokens * self.truncate_threshold) or not self._turns:
             return
 
-        turns_to_remove = max(int(len(self.turns) * self.truncate_percentage), 1)
-        initial_count = len(self.turns)
-        self.turns = self.turns[turns_to_remove:]
+        turns_to_remove = max(int(len(self._turns) * self.truncate_percentage), 1)
+        initial_count = len(self._turns)
+        self._turns = self._turns[turns_to_remove:]
 
         self.logger.info(
             "Truncated message history",
@@ -242,8 +264,8 @@ class InMemoryMessageHistory(MessageHistory):
                 "inputTokens": context_tokens,
                 "maxTokens": self.max_tokens,
                 "threshold": self.max_tokens * self.truncate_threshold,
-                "turnsRemoved": initial_count - len(self.turns),
+                "turnsRemoved": initial_count - len(self._turns),
                 "turnsBefore": initial_count,
-                "turnsAfter": len(self.turns),
+                "turnsAfter": len(self._turns),
             },
         )
