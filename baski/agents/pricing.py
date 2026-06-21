@@ -31,24 +31,28 @@ MODEL_PRICING = {
 }
 
 
-def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Calculate cost in USD for a given model and token usage.
+# Cache multipliers vs base input price (5-minute ephemeral write, read).
+_CACHE_WRITE_MULTIPLIER = 1.25
+_CACHE_READ_MULTIPLIER = 0.10
 
-    Args:
-        model: Model name (e.g., "claude-sonnet-4-5")
-        input_tokens: Number of input tokens
-        output_tokens: Number of output tokens
 
-    Returns:
-        Cost in USD
+def effective_input_tokens(usage: Usage) -> int:
+    """Real context-window size: `input_tokens` (uncached only, under caching) plus both cache buckets."""
+    return usage.input_tokens + (usage.cache_read_input_tokens or 0) + (usage.cache_creation_input_tokens or 0)
 
-    """
+
+def calculate_cost(model: str, usage: Usage) -> float:
+    """Calculate cost in USD for one API response, pricing each cache bucket at its own rate."""
     pricing = MODEL_PRICING.get(model, MODEL_PRICING["claude-sonnet-4-5"])
 
-    input_cost = (input_tokens / 1_000_000) * pricing["input"]
-    output_cost = (output_tokens / 1_000_000) * pricing["output"]
+    input_cost = (usage.input_tokens / 1_000_000) * pricing["input"]
+    output_cost = (usage.output_tokens / 1_000_000) * pricing["output"]
+    cache_write_cost = (
+        ((usage.cache_creation_input_tokens or 0) / 1_000_000) * pricing["input"] * _CACHE_WRITE_MULTIPLIER
+    )
+    cache_read_cost = ((usage.cache_read_input_tokens or 0) / 1_000_000) * pricing["input"] * _CACHE_READ_MULTIPLIER
 
-    return input_cost + output_cost
+    return input_cost + output_cost + cache_write_cost + cache_read_cost
 
 
 class ExecutionLogFields(BaseModel):
@@ -75,12 +79,16 @@ class ExecutionStats:
     cost: float = 0.0
 
     def collect(self, usage: Usage) -> None:
-        """Accumulate token usage and cost from a single API response."""
+        """Accumulate token usage and cost from a single API response.
+
+        `last_input_tokens` is the real context-window size (incl. cached prefix); the cost prices
+        the cache read/write buckets at their own rates.
+        """
         self.input_tokens += usage.input_tokens
         self.output_tokens += usage.output_tokens
-        self.last_input_tokens = usage.input_tokens
+        self.last_input_tokens = effective_input_tokens(usage)
         self.turn_count += 1
-        self.cost += calculate_cost(self.model, usage.input_tokens, usage.output_tokens)
+        self.cost += calculate_cost(self.model, usage)
 
     def for_logs(self) -> ExecutionLogFields:
         """Build a structured log-fields model from current execution stats."""
