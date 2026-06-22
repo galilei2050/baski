@@ -110,7 +110,7 @@ class SerpApiClient:
 
         return await self.request("GET", "yelp_place", params=params)
 
-    async def get_yelp_reviews(self, place_id: str, amount: float | None = None, **kwargs: Any) -> dict:  # noqa: ANN401, PLR0915, ANON002 — caller-supplied SerpAPI params; pagination loop is the simplest expression; JSON response
+    async def get_yelp_reviews(self, place_id: str, amount: float | None = None, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — caller-supplied SerpAPI params; pagination loop is the simplest expression; JSON response
         """Fetch Yelp reviews for a place, paginating until ``amount`` reviews are collected."""
         if amount is None:
             amount = float("inf")

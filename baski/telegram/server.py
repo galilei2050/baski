@@ -106,7 +106,7 @@ class TelegramServer(AsyncServer):
         await self.dp.start_polling(self.bot)
         return 0
 
-    async def _run_webhook(self) -> int:  # noqa: PLR0915 — wires startup + webhook/worker/ping routes inline
+    async def _run_webhook(self) -> int:
         webhook_url = self.args["webhook_url"]
         parsed = urlparse(webhook_url)
         path = parsed.path or "/webhook"

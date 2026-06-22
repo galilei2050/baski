@@ -2,10 +2,10 @@
 
 import asyncio
 import time
+from http import HTTPStatus
 from typing import NamedTuple
 
-from anthropic import APIError as AnthropicAPIError
-from anthropic import APIStatusError, AsyncAnthropic
+from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
 from anthropic.types import ContentBlock, Message, MessageParam, TextBlock, TextBlockParam, ThinkingBlock, ToolUseBlock
 from pymongo.asynchronous.database import AsyncDatabase
 
@@ -34,6 +34,24 @@ class AgentRefusalError(RuntimeError):
     Anthropic's safety classifier halted generation with no usable output. Raised
     immediately so the caller can surface it instead of silently falling back.
     """
+
+
+class AgentProviderUnavailableError(RuntimeError):
+    """The model provider is unavailable — a 5xx/529 (overloaded) status or a connection failure.
+
+    Raised once retries are exhausted, so the caller can tell a provider-side outage apart from a
+    bug on our side (4xx) and surface it differently instead of as a generic error.
+    """
+
+
+def _is_retriable(e: APIStatusError | APIConnectionError) -> bool:
+    """A transient provider failure worth retrying — a connection blip or a 5xx/529 (overloaded) status.
+
+    A 4xx (bad request, auth, rate limit) is our problem, not the provider's; retrying won't help.
+    """
+    if isinstance(e, APIConnectionError):
+        return True
+    return e.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 class ParsedResponse(NamedTuple):
@@ -132,10 +150,12 @@ class Agent:
             return await stream.get_final_message()
 
     async def _call_api(self, messages: list[MessageParam]) -> Message:
-        """Streaming API call with retry on api_error (max 1 retry, 2s sleep).
+        """Streaming API call with one retry on a transient provider error (2s backoff).
 
-        Raises AgentRefusalError on a `refusal` stop_reason — caught here, before the
-        message reaches history, so the refused content never gets fed back in.
+        Raises AgentRefusalError on a `refusal` stop_reason — caught here, before the message
+        reaches history, so the refused content never gets fed back in. A provider outage
+        (5xx/529 or a connection failure) becomes AgentProviderUnavailableError once the retry
+        is exhausted; a 4xx (our own bug) re-raises as-is.
         """
         max_retries = 1
         retry_count = 0
@@ -143,8 +163,10 @@ class Agent:
         while retry_count <= max_retries:
             try:
                 message = await self._stream_message(messages)
-            except APIStatusError as e:
-                if retry_count < max_retries and "api_error" in str(e):
+            except (APIStatusError, APIConnectionError) as e:
+                if not _is_retriable(e):
+                    raise
+                if retry_count < max_retries:
                     retry_count += 1
                     self.logger.warning(
                         "Anthropic API error, retrying",
@@ -152,9 +174,7 @@ class Agent:
                     )
                     await asyncio.sleep(2)
                     continue
-                raise
-            except AnthropicAPIError:
-                raise
+                raise AgentProviderUnavailableError("Anthropic is unavailable") from e
 
             if message.stop_reason == "refusal":
                 raise AgentRefusalError("Model returned stop_reason='refusal'")

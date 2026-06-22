@@ -143,7 +143,7 @@ class AsyncServer:
         """Make the instance callable so it can be used as a CLI entry point."""
         return self.run()
 
-    def run(self) -> int:  # noqa: PLR0915 — startup logging + single-loop lifecycle + error handling, inline by design
+    def run(self) -> int:
         """Top-level entry: log startup, run execute() on the process's single loop, swallow KeyboardInterrupt."""
         try:
             if self.args["cloud"]:
