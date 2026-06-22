@@ -1,6 +1,6 @@
 """Agent framework for LLM-powered tool-use conversations."""
 
-from .agent import Agent, AgentConfig, AgentRefusalError
+from .agent import Agent, AgentConfig, AgentProviderUnavailableError, AgentRefusalError
 from .events import (
     AgentEvent,
     Completed,
@@ -24,6 +24,7 @@ __all__ = [
     "AgentConfig",
     "AgentEvent",
     "AgentExecuteResult",
+    "AgentProviderUnavailableError",
     "AgentRefusalError",
     "Completed",
     "EventType",

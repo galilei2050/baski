@@ -2,10 +2,11 @@
 
 import asyncio
 import time
-from typing import NamedTuple
+from http import HTTPStatus
+from typing import NamedTuple, NoReturn
 
+from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
 from anthropic import APIError as AnthropicAPIError
-from anthropic import APIStatusError, AsyncAnthropic
 from anthropic.types import ContentBlock, Message, MessageParam, TextBlock, TextBlockParam, ThinkingBlock, ToolUseBlock
 from pymongo.asynchronous.database import AsyncDatabase
 
@@ -34,6 +35,23 @@ class AgentRefusalError(RuntimeError):
     Anthropic's safety classifier halted generation with no usable output. Raised
     immediately so the caller can surface it instead of silently falling back.
     """
+
+
+class AgentProviderUnavailableError(RuntimeError):
+    """The model provider is unavailable — a 5xx/529 (overloaded) status or a connection failure.
+
+    Raised once retries are exhausted, so the caller can tell a provider-side outage apart from a
+    bug on our side (4xx) and surface it differently instead of as a generic error.
+    """
+
+
+def _translate_api_error(e: AnthropicAPIError) -> NoReturn:
+    """Re-raise a provider-side outage as AgentProviderUnavailableError; otherwise re-raise as-is."""
+    if isinstance(e, APIConnectionError):
+        raise AgentProviderUnavailableError("Could not reach Anthropic") from e
+    if isinstance(e, APIStatusError) and e.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:  # 5xx + 529 overloaded
+        raise AgentProviderUnavailableError("Anthropic returned a server error") from e
+    raise e
 
 
 class ParsedResponse(NamedTuple):
@@ -135,7 +153,9 @@ class Agent:
         """Streaming API call with retry on api_error (max 1 retry, 2s sleep).
 
         Raises AgentRefusalError on a `refusal` stop_reason — caught here, before the
-        message reaches history, so the refused content never gets fed back in.
+        message reaches history, so the refused content never gets fed back in. A
+        provider-side outage (5xx/529 or a connection failure) becomes
+        AgentProviderUnavailableError once retries are exhausted.
         """
         max_retries = 1
         retry_count = 0
@@ -152,9 +172,9 @@ class Agent:
                     )
                     await asyncio.sleep(2)
                     continue
-                raise
-            except AnthropicAPIError:
-                raise
+                _translate_api_error(e)
+            except AnthropicAPIError as e:
+                _translate_api_error(e)
 
             if message.stop_reason == "refusal":
                 raise AgentRefusalError("Model returned stop_reason='refusal'")
