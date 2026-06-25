@@ -70,17 +70,22 @@ class PlaywrightClient:
         self._context = await self.new_context(self.storage_state)
         return self
 
-    async def new_context(self, storage_state: str | None = None) -> BrowserContext:
+    async def new_context(
+        self, storage_state: str | None = None, proxy: dict[str, str] | None = None
+    ) -> BrowserContext:
         """Open an isolated browser context with the shared config, loading a saved session when present.
 
         Each context is a separate cookie/storage jar — callers that need per-tenant logins (e.g. one
         per chat) open one context each. A missing ``storage_state`` file is ignored (logged-out).
+        ``proxy`` is Playwright's context proxy (``server``/``username``/``password``); None = direct.
         """
         if not self._browser:
             raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
         context_args: dict[str, Any] = {"user_agent": _SAFARI_UA, "viewport": {"width": 1600, "height": 900}}
         if storage_state and await AsyncPath(storage_state).exists():
             context_args["storage_state"] = storage_state
+        if proxy:
+            context_args["proxy"] = proxy
         context = await self._browser.new_context(**context_args)
         context.set_default_timeout(self.timeout)
         context.set_default_navigation_timeout(self.timeout)
