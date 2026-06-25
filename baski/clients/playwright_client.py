@@ -64,16 +64,27 @@ class PlaywrightClient:
         self._context: BrowserContext | None = None
 
     async def __aenter__(self) -> Self:
-        """Start Playwright and open a browser context, loading a saved session when present."""
+        """Start Playwright and open the default browser context, loading a saved session when present."""
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(headless=self.headless)
-        context_args: dict[str, Any] = {"user_agent": _SAFARI_UA, "viewport": {"width": 1600, "height": 900}}
-        if self.storage_state and await AsyncPath(self.storage_state).exists():
-            context_args["storage_state"] = self.storage_state
-        self._context = await self._browser.new_context(**context_args)
-        self._context.set_default_timeout(self.timeout)
-        self._context.set_default_navigation_timeout(self.timeout)
+        self._context = await self.new_context(self.storage_state)
         return self
+
+    async def new_context(self, storage_state: str | None = None) -> BrowserContext:
+        """Open an isolated browser context with the shared config, loading a saved session when present.
+
+        Each context is a separate cookie/storage jar — callers that need per-tenant logins (e.g. one
+        per chat) open one context each. A missing ``storage_state`` file is ignored (logged-out).
+        """
+        if not self._browser:
+            raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
+        context_args: dict[str, Any] = {"user_agent": _SAFARI_UA, "viewport": {"width": 1600, "height": 900}}
+        if storage_state and await AsyncPath(storage_state).exists():
+            context_args["storage_state"] = storage_state
+        context = await self._browser.new_context(**context_args)
+        context.set_default_timeout(self.timeout)
+        context.set_default_navigation_timeout(self.timeout)
+        return context
 
     async def __aexit__(
         self,
