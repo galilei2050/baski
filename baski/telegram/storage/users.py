@@ -7,7 +7,6 @@ from datetime import datetime
 from aiogram import types
 from google.cloud import firestore
 
-from ...concurrent import as_task
 from ...primitives.dataclass import from_doc
 
 __all__ = ["TelegramUser", "UsersStorage"]
@@ -80,5 +79,5 @@ class UsersStorage:
     def set(self, user: TelegramUser) -> None:
         """Schedule a merge-write of `user` in the background."""
         user_ref = self._db.document(str(user.id))
-        self._tasks.append(as_task(user_ref.set(asdict(user), merge=True)))
+        self._tasks.append(asyncio.create_task(user_ref.set(asdict(user), merge=True)))
         self._tasks = [t for t in self._tasks[:] if not t.done()]

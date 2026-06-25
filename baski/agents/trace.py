@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict, SkipValidation, field_serializer
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import PyMongoError
 
-from baski.concurrent import as_async, as_task
 from baski.primitives import datetime, json
 from baski.server import Logger
 
@@ -226,7 +225,7 @@ class TraceCollector:
         if result is not None:
             self._result = result
         self._error = error
-        task = as_task(self._persist(stats))
+        task = asyncio.create_task(self._persist(stats))
         self._persist_task = task
         _track(task)
 
@@ -258,7 +257,7 @@ class TraceCollector:
         """Persist the full record — to `local_traces_dir` when set (debug/probe), else GCS."""
         if self._local_traces_dir is not None:
             path = Path(self._local_traces_dir) / f"{self.id}.json"
-            await as_async(lambda: self._write_local(path))
+            await anyio.to_thread.run_sync(self._write_local, path)
         else:
             await self._upload_to_gcs()
 
@@ -277,7 +276,7 @@ class TraceCollector:
 
         upload_error: str | None = None
         try:
-            await as_async(_upload)
+            await anyio.to_thread.run_sync(_upload)
         except (GoogleAPIError, OSError) as e:
             upload_error = str(e)
 

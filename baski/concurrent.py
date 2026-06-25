@@ -7,7 +7,7 @@ from http import HTTPStatus
 
 from .server.config import AppConfig
 
-__all__ = ["as_async", "as_task", "map_async"]
+__all__ = ["map_async"]
 
 
 @functools.lru_cache
@@ -36,18 +36,3 @@ async def map_async(
 
         results.extend([p.result() for p in done if p.result() is not None])
     return results
-
-
-async def as_async(
-    f: typing.Callable,
-    *args: typing.Any,  # noqa: ANN401 — forwarded transparently to f
-    **kwargs: typing.Any,  # noqa: ANN401 — forwarded transparently to f
-) -> typing.Any:  # noqa: ANN401 — return type mirrors arbitrary callable f
-    """Run a blocking callable in the default executor and await the result."""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, functools.partial(f, *args, **kwargs))
-
-
-def as_task(coro: typing.Coroutine) -> asyncio.Task:
-    """Schedule a coroutine on the running loop as a Task."""
-    return asyncio.get_event_loop().create_task(coro)
