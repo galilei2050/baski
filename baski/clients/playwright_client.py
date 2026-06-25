@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Self
 
 import trafilatura
+from anyio import Path as AsyncPath
 from bs4 import BeautifulSoup
 from httpx import HTTPStatusError
 from httpx import Request as HttpxRequest
@@ -37,26 +38,58 @@ class PlaywrightClient:
         async with PlaywrightClient(headless=True) as client:
             markdown = await client.fetch_page_markdown(url)
 
-    Note: Requires 'playwright install firefox' after pip install
+    Note: Requires 'playwright install chromium' after pip install
     """
 
-    def __init__(self, *, headless: bool = True, logger: Logger | None = None, timeout: int = 90000) -> None:
-        """Configure browser launch options; the browser is started in ``__aenter__``."""
+    def __init__(
+        self,
+        *,
+        headless: bool = True,
+        logger: Logger | None = None,
+        timeout: int = 90000,
+        storage_state: str | None = None,
+    ) -> None:
+        """Configure browser launch options; the browser is started in ``__aenter__``.
+
+        ``storage_state`` is a path to a Playwright storage-state file (cookies + localStorage). When
+        it points at an existing file, the context starts from that saved session, so pages behind a
+        login are reachable. A missing file is ignored — the context starts logged-out.
+        """
         self.headless = headless
         self.logger = logger
         self.timeout = timeout
+        self.storage_state = storage_state
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
 
     async def __aenter__(self) -> Self:
-        """Start Playwright and open a browser context."""
+        """Start Playwright and open the default browser context, loading a saved session when present."""
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.firefox.launch(headless=self.headless)
-        self._context = await self._browser.new_context(user_agent=_SAFARI_UA, viewport={"width": 1600, "height": 900})
-        self._context.set_default_timeout(self.timeout)
-        self._context.set_default_navigation_timeout(self.timeout)
+        self._browser = await self._playwright.chromium.launch(headless=self.headless)
+        self._context = await self.new_context(self.storage_state)
         return self
+
+    async def new_context(
+        self, storage_state: str | None = None, proxy: dict[str, str] | None = None
+    ) -> BrowserContext:
+        """Open an isolated browser context with the shared config, loading a saved session when present.
+
+        Each context is a separate cookie/storage jar — callers that need per-tenant logins (e.g. one
+        per chat) open one context each. A missing ``storage_state`` file is ignored (logged-out).
+        ``proxy`` is Playwright's context proxy (``server``/``username``/``password``); None = direct.
+        """
+        if not self._browser:
+            raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
+        context_args: dict[str, Any] = {"user_agent": _SAFARI_UA, "viewport": {"width": 1600, "height": 900}}
+        if storage_state and await AsyncPath(storage_state).exists():
+            context_args["storage_state"] = storage_state
+        if proxy:
+            context_args["proxy"] = proxy
+        context = await self._browser.new_context(**context_args)
+        context.set_default_timeout(self.timeout)
+        context.set_default_navigation_timeout(self.timeout)
+        return context
 
     async def __aexit__(
         self,
@@ -71,6 +104,18 @@ class PlaywrightClient:
             await self._browser.close()
         if self._playwright:
             await self._playwright.stop()
+
+    async def new_page(self) -> Page:
+        """Open a blank page in the shared context for a caller to drive (interactive/headed use)."""
+        if not self._context:
+            raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
+        return await self._context.new_page()
+
+    async def save_storage_state(self, path: str) -> None:
+        """Write the context's session (cookies + localStorage) to a Playwright storage-state file."""
+        if not self._context:
+            raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
+        await self._context.storage_state(path=path)
 
     async def fetch_page_markdown(self, url: str) -> str:
         """Fetch webpage content and convert to markdown with retry logic.

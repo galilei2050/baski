@@ -1,6 +1,6 @@
 """Baski — shared foundational library: HTTP/Telegram server templates, logger, and reusable primitives."""
 
-from .concurrent import as_async, as_task, map_async
+from .concurrent import map_async
 from .env import get_env, is_cloud, is_debug, is_test, port, project_id, token
 from .http import dependencies as dependencies
 from .on_exception import do_nothing, do_nothing_sync, on_exception
@@ -12,8 +12,6 @@ from .primitives.unique_id import unique_id
 
 __all__ = [
     "JSONDecodeError",
-    "as_async",
-    "as_task",
     "datetime",
     "dependencies",
     "do_nothing",

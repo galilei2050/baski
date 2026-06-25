@@ -1,16 +1,17 @@
 """Catch-all middleware for messages that no other handler processed."""
 
+import functools
 import io
 import pathlib
 import tempfile
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import anyio
 from aiogram import Bot, types
 from aiogram.exceptions import TelegramAPIError
 from google.cloud import storage
 
-from ...concurrent import as_async
 from ...pattern import retry
 from ...primitives import datetime
 from ..telemetry import UNKNOWN_MESSAGE_TYPE, MessageTelemetry
@@ -95,7 +96,9 @@ class UnprocessedMiddleware:
         with io.FileIO(name, "rb") as read_buffer:
             bucket_path = f"{message.chat.id}/{now:%Y-%m-%d}_{object_type}_{message.message_id}_{local_file_path.name}"
             blob = self.bucket.blob(bucket_path)
-            await as_async(blob.upload_from_file, file_obj=read_buffer, content_type=mime_type, num_retries=5)
+            await anyio.to_thread.run_sync(
+                functools.partial(blob.upload_from_file, file_obj=read_buffer, content_type=mime_type, num_retries=5)
+            )
 
     async def _download_media(
         self,
