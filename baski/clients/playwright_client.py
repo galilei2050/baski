@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Self
 
 import trafilatura
+from anyio import Path as AsyncPath
 from bs4 import BeautifulSoup
 from httpx import HTTPStatusError
 from httpx import Request as HttpxRequest
@@ -37,23 +38,39 @@ class PlaywrightClient:
         async with PlaywrightClient(headless=True) as client:
             markdown = await client.fetch_page_markdown(url)
 
-    Note: Requires 'playwright install firefox' after pip install
+    Note: Requires 'playwright install chromium' after pip install
     """
 
-    def __init__(self, *, headless: bool = True, logger: Logger | None = None, timeout: int = 90000) -> None:
-        """Configure browser launch options; the browser is started in ``__aenter__``."""
+    def __init__(
+        self,
+        *,
+        headless: bool = True,
+        logger: Logger | None = None,
+        timeout: int = 90000,
+        storage_state: str | None = None,
+    ) -> None:
+        """Configure browser launch options; the browser is started in ``__aenter__``.
+
+        ``storage_state`` is a path to a Playwright storage-state file (cookies + localStorage). When
+        it points at an existing file, the context starts from that saved session, so pages behind a
+        login are reachable. A missing file is ignored — the context starts logged-out.
+        """
         self.headless = headless
         self.logger = logger
         self.timeout = timeout
+        self.storage_state = storage_state
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
 
     async def __aenter__(self) -> Self:
-        """Start Playwright and open a browser context."""
+        """Start Playwright and open a browser context, loading a saved session when present."""
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.firefox.launch(headless=self.headless)
-        self._context = await self._browser.new_context(user_agent=_SAFARI_UA, viewport={"width": 1600, "height": 900})
+        self._browser = await self._playwright.chromium.launch(headless=self.headless)
+        context_args: dict[str, Any] = {"user_agent": _SAFARI_UA, "viewport": {"width": 1600, "height": 900}}
+        if self.storage_state and await AsyncPath(self.storage_state).exists():
+            context_args["storage_state"] = self.storage_state
+        self._context = await self._browser.new_context(**context_args)
         self._context.set_default_timeout(self.timeout)
         self._context.set_default_navigation_timeout(self.timeout)
         return self
