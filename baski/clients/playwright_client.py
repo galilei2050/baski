@@ -89,6 +89,18 @@ class PlaywrightClient:
         if self._playwright:
             await self._playwright.stop()
 
+    async def new_page(self) -> Page:
+        """Open a blank page in the shared context for a caller to drive (interactive/headed use)."""
+        if not self._context:
+            raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
+        return await self._context.new_page()
+
+    async def save_storage_state(self, path: str) -> None:
+        """Write the context's session (cookies + localStorage) to a Playwright storage-state file."""
+        if not self._context:
+            raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
+        await self._context.storage_state(path=path)
+
     async def fetch_page_markdown(self, url: str) -> str:
         """Fetch webpage content and convert to markdown with retry logic.
 
