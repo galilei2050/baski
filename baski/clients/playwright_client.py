@@ -5,7 +5,7 @@ from datetime import UTC
 from datetime import datetime as _dt
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Self, cast
 
 import trafilatura
 from anyio import Path as AsyncPath
@@ -14,7 +14,7 @@ from httpx import HTTPStatusError
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
 from markdownify import markdownify as md
-from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
+from playwright.async_api import Browser, BrowserContext, Page, Playwright, StorageState, async_playwright
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
@@ -41,24 +41,32 @@ class PlaywrightClient:
     Note: Requires 'playwright install chromium' after pip install
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 — keyword-only browser-config knobs; each is an independent launch option
         self,
         *,
         headless: bool = True,
         logger: Logger | None = None,
         timeout: int = 90000,
         storage_state: str | None = None,
+        cdp_url: str | None = None,
     ) -> None:
         """Configure browser launch options; the browser is started in ``__aenter__``.
 
         ``storage_state`` is a path to a Playwright storage-state file (cookies + localStorage). When
         it points at an existing file, the context starts from that saved session, so pages behind a
         login are reachable. A missing file is ignored — the context starts logged-out.
+
+        ``cdp_url`` attaches to a remote browser over CDP (e.g. a managed/fortified browser like
+        Browserbase) instead of launching a local Chromium — the way to act on sites whose bot
+        protection rejects an automated local browser. In CDP mode there is a single shared context
+        (the remote browser's), so ``new_context`` returns it and merges any ``storage_state`` cookies
+        in rather than opening a fresh isolated jar.
         """
         self.headless = headless
         self.logger = logger
         self.timeout = timeout
         self.storage_state = storage_state
+        self.cdp_url = cdp_url
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -66,23 +74,39 @@ class PlaywrightClient:
     async def __aenter__(self) -> Self:
         """Start Playwright and open the default browser context, loading a saved session when present."""
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=self.headless)
-        self._context = await self.new_context(self.storage_state)
+        if self.cdp_url:
+            self._browser = await self._playwright.chromium.connect_over_cdp(self.cdp_url)
+            self._context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context()
+        else:
+            self._browser = await self._playwright.chromium.launch(headless=self.headless)
+            self._context = await self.new_context(self.storage_state)
         return self
 
     async def new_context(
-        self, storage_state: str | None = None, proxy: dict[str, str] | None = None
+        self, storage_state: str | StorageState | None = None, proxy: dict[str, str] | None = None
     ) -> BrowserContext:
         """Open an isolated browser context with the shared config, loading a saved session when present.
 
         Each context is a separate cookie/storage jar — callers that need per-tenant logins (e.g. one
-        per chat) open one context each. A missing ``storage_state`` file is ignored (logged-out).
-        ``proxy`` is Playwright's context proxy (``server``/``username``/``password``); None = direct.
+        per chat) open one context each. ``storage_state`` is either a path to a Playwright
+        storage-state file (a missing file is ignored — logged-out) or the state dict itself (cookies
+        + origins, e.g. fetched from a DB); the dict is passed straight through. ``proxy`` is
+        Playwright's context proxy (``server``/``username``/``password``); None = direct.
         """
         if not self._browser:
             raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
+        if self.cdp_url:
+            # Remote browser: one shared context (its fingerprint/proxy live there); reuse it and merge
+            # in the saved cookies rather than opening an isolated jar that would lose that setup.
+            context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context()
+            cookies = storage_state.get("cookies") if isinstance(storage_state, dict) else None
+            if cookies:
+                await context.add_cookies(cast("Any", cookies))  # StorageState cookie ≈ SetCookieParam at runtime
+            context.set_default_timeout(self.timeout)
+            context.set_default_navigation_timeout(self.timeout)
+            return context
         context_args: dict[str, Any] = {"user_agent": _SAFARI_UA, "viewport": {"width": 1600, "height": 900}}
-        if storage_state and await AsyncPath(storage_state).exists():
+        if isinstance(storage_state, dict) or (storage_state and await AsyncPath(storage_state).exists()):
             context_args["storage_state"] = storage_state
         if proxy:
             context_args["proxy"] = proxy
