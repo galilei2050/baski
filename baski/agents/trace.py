@@ -2,6 +2,7 @@
 
 import asyncio
 import gzip
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -16,7 +17,6 @@ from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import PyMongoError
 
 from baski.primitives import datetime, json
-from baski.server import Logger
 
 from .execute_result import AgentExecuteResult
 from .pricing import ExecutionStats
@@ -43,7 +43,7 @@ class TraceCollectorConfig(NamedTuple):
     system_prompt: str
     bucket_name: str
     database: AsyncDatabase
-    logger: Logger
+    logger: logging.Logger
     local_traces_dir: str | None = None  # write the full trace here instead of GCS; None → GCS
 
 
@@ -179,7 +179,9 @@ class TraceCollector:
             elif isinstance(block, ToolUseBlock):
                 turn.tool_calls.append(block)
             else:
-                self._logger.warning("Unknown content block type", labels={"blockType": type(block).__name__})
+                self._logger.warning(
+                    "Unknown content block type", extra={"json_fields": {"blockType": type(block).__name__}}
+                )
 
         _ = api_duration_ms  # recorded at turn level via end_turn timing
 
@@ -281,9 +283,11 @@ class TraceCollector:
             upload_error = str(e)
 
         if upload_error is not None:
-            self._logger.error("Failed to upload trace", labels={"traceId": self.id, "error": upload_error})
+            self._logger.error(
+                "Failed to upload trace", extra={"json_fields": {"traceId": self.id, "error": upload_error}}
+            )
         else:
-            self._logger.info("Trace uploaded", labels={"traceId": self.id})
+            self._logger.info("Trace uploaded", extra={"json_fields": {"traceId": self.id}})
 
     async def _save_to_db(self, stats: ExecutionStats) -> None:
         """Save lightweight trace summary to MongoDB."""
@@ -302,6 +306,6 @@ class TraceCollector:
         try:
             await self._database["traces"].insert_one(doc)
         except PyMongoError:
-            self._logger.exception("Failed to save trace to DB", labels={"traceId": self.id})
+            self._logger.exception("Failed to save trace to DB", extra={"json_fields": {"traceId": self.id}})
             return
-        self._logger.info("Trace saved to DB", labels={"traceId": self.id})
+        self._logger.info("Trace saved to DB", extra={"json_fields": {"traceId": self.id}})

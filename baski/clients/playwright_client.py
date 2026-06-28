@@ -1,6 +1,7 @@
 """Async Playwright client that fetches pages and converts them to cleaned markdown."""
 
 import asyncio
+import logging
 from datetime import UTC
 from datetime import datetime as _dt
 from http import HTTPStatus
@@ -17,8 +18,6 @@ from markdownify import markdownify as md
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, StorageState, async_playwright
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-
-from ..server.logger import Logger
 
 __all__ = ["PlaywrightClient"]
 
@@ -45,7 +44,7 @@ class PlaywrightClient:
         self,
         *,
         headless: bool = True,
-        logger: Logger | None = None,
+        logger: logging.Logger | None = None,
         timeout: int = 90000,
         storage_state: str | None = None,
         cdp_url: str | None = None,
@@ -156,7 +155,7 @@ class PlaywrightClient:
 
         page = await self._context.new_page()
         if self.logger:
-            self.logger.info("Fetching page", labels={"url": url})
+            self.logger.info("Fetching page", extra={"json_fields": {"url": url}})
 
         try:
             await self._safe_goto(page, url)
@@ -180,14 +179,18 @@ class PlaywrightClient:
                     raise
                 last_error = e
                 if self.logger:
-                    self.logger.info(f"Attempt {attempt} failed, retrying", labels={"url": url, "error": str(e)[:100]})
+                    self.logger.info(
+                        f"Attempt {attempt} failed, retrying",
+                        extra={"json_fields": {"url": url, "error": str(e)[:100]}},
+                    )
                 continue
             if http_error is None:
                 return
             last_error = http_error
             if self.logger:
                 self.logger.info(
-                    f"Attempt {attempt} failed", labels={"url": url, "status": http_error.response.status_code}
+                    f"Attempt {attempt} failed",
+                    extra={"json_fields": {"url": url, "status": http_error.response.status_code}},
                 )
         raise last_error or RuntimeError(f"Failed to fetch page: {url}")
 
@@ -227,10 +230,17 @@ class PlaywrightClient:
 
             self.logger.info(
                 "Error context saved",
-                labels={"url": url, "screenshot": screenshot_path, "html": html_path, "error": str(error)[:100]},
+                extra={
+                    "json_fields": {
+                        "url": url,
+                        "screenshot": screenshot_path,
+                        "html": html_path,
+                        "error": str(error)[:100],
+                    }
+                },
             )
         except Exception as e:  # noqa: BLE001 — debug dump must not crash the main error handler
-            self.logger.info("Failed to dump error context", labels={"error": str(e)})
+            self.logger.info("Failed to dump error context", extra={"json_fields": {"error": str(e)}})
 
 
 _NAV_SELECTORS = (

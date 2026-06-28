@@ -1,9 +1,10 @@
 """Tool for fetching Apple App Store data via SerpApi."""
 
+import logging
+
 from pydantic import BaseModel, Field
 
 from baski.clients.serpapi_client import SerpApiClient
-from baski.server import Logger
 
 from ..tool import Tool
 
@@ -23,7 +24,7 @@ class AppleAppStoreTool(Tool):
 
         company_name: str = Field(description="Company or app name to search for (e.g., 'Zibra AI')")
 
-    def __init__(self, serpapi_client: SerpApiClient, logger: Logger) -> None:
+    def __init__(self, serpapi_client: SerpApiClient, logger: logging.Logger) -> None:
         """Store SerpApi client and logger."""
         self.serpapi_client = serpapi_client
         self.logger = logger

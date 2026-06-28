@@ -1,12 +1,11 @@
 """Error-handling helpers for aiogram dispatchers."""
 
 import asyncio
+import logging
 from typing import Any, ClassVar
 
 from aiogram import types
 from aiogram.exceptions import TelegramForbiddenError, TelegramUnauthorizedError
-
-from ...server.logger import LocalLogger, Logger
 
 __all__ = ["I_AM_SORRY", "LogErrorHandler", "SaySorryHandler"]
 
@@ -22,9 +21,9 @@ I_AM_SORRY = {
 class SaySorryHandler:
     """Replies with an apology message. Register via `dp.errors.register(SaySorryHandler())`."""
 
-    def __init__(self, logger: Logger | None = None) -> None:
-        """Store logger; defaults to `LocalLogger`."""
-        self._logger: Logger = logger or LocalLogger()
+    def __init__(self, logger: logging.Logger | None = None) -> None:
+        """Store logger; defaults to the module logger."""
+        self._logger: logging.Logger = logger or logging.getLogger(__name__)
 
     async def __call__(
         self,
@@ -61,12 +60,12 @@ class LogErrorHandler:
         self,
         ignore_exceptions: tuple[type[BaseException], ...] = (),
         warning_exceptions: tuple[type[BaseException], ...] = (),
-        logger: Logger | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         """Store exception categories and logger."""
         self.ignore_exceptions = self._DEFAULT_IGNORE + ignore_exceptions
         self.warning_exceptions = self._DEFAULT_WARN + warning_exceptions
-        self._logger: Logger = logger or LocalLogger()
+        self._logger: logging.Logger = logger or logging.getLogger(__name__)
 
     async def __call__(
         self,

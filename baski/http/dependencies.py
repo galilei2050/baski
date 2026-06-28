@@ -11,7 +11,6 @@ from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
 
 from ..server.config import AppConfig
-from ..server.logger import CloudLogger, LocalLogger, Logger
 
 __all__ = [
     "get_auth_token",
@@ -21,7 +20,6 @@ __all__ = [
     "get_default_database",
     "get_firestore_client",
     "get_http_client",
-    "get_logger",
     "get_mongo_client",
     "get_publisher_client",
     "get_storage_client",
@@ -34,15 +32,6 @@ security = HTTPBearer(auto_error=False)
 def get_config(request: Request) -> AppConfig:
     """Return the application config attached to ``request.state``."""
     return request.state.config
-
-
-def get_logger(request: Request) -> Logger:
-    """Return a request-scoped logger (Cloud Logging in cloud mode, stdlib locally)."""
-    if request.state.logging_client:
-        return CloudLogger(
-            logger_client=request.state.logging_client, request=request, project_id=request.state.config["project_id"]
-        )
-    return LocalLogger(request=request)
 
 
 def get_mongo_client(request: Request) -> AsyncMongoClient:

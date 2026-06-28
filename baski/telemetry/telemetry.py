@@ -1,6 +1,7 @@
 """Telemetry client that publishes structured events to a Pub/Sub topic."""
 
 import json
+import logging
 import uuid
 from datetime import datetime as _dt
 from typing import Any
@@ -9,7 +10,6 @@ from google.api_core import exceptions as gapi_exceptions
 from google.cloud import pubsub
 
 from ..primitives import datetime
-from ..server.logger import LocalLogger, Logger
 from .event_schema import EventSchema
 
 __all__ = ["Telemetry"]
@@ -27,13 +27,13 @@ class Telemetry:
         topic_name: str = "event",
         *,
         publish: bool = True,
-        logger: Logger | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         """Configure the publisher, topic path, publish toggle, and logger."""
         self.publisher = publisher
         self.topic_path = self.publisher.topic_path(project_id, topic_name)
         self.publish = publish
-        self._logger: Logger = logger or LocalLogger()
+        self._logger: logging.Logger = logger or logging.getLogger(__name__)
 
     def add(
         self,

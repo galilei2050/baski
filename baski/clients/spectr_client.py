@@ -1,5 +1,6 @@
 """Async client for the Specter (tryspecter.com) company enrichment API."""
 
+import logging
 from http import HTTPStatus
 from typing import Any
 
@@ -7,7 +8,6 @@ import httpx
 from google.cloud import storage
 
 from .. import get_env
-from ..server.logger import Logger
 
 __all__ = ["SpectrClient"]
 
@@ -17,7 +17,7 @@ class SpectrClient:
 
     def __init__(
         self,
-        logger: Logger,
+        logger: logging.Logger,
         http_client: httpx.AsyncClient,
         dataset_bucket: storage.Bucket | None = None,
     ) -> None:
@@ -51,11 +51,13 @@ class SpectrClient:
         kwargs.pop("headers", None)
         self._logger.info(
             "Spectr request",
-            labels={
-                "spectrEndpoint": endpoint,
-                "rateLimit": rate_limit,
-                "creditLimit": credit_limit,
-                "kwargs": kwargs,
+            extra={
+                "json_fields": {
+                    "spectrEndpoint": endpoint,
+                    "rateLimit": rate_limit,
+                    "creditLimit": credit_limit,
+                    "kwargs": kwargs,
+                }
             },
         )
 

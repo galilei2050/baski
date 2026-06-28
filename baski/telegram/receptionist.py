@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from aiogram import Dispatcher, F, Router, types
-
-from ..server.logger import LocalLogger, Logger
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -28,11 +27,11 @@ class Receptionist:
     Call `mount(dp)` once after registering handlers to attach the router to a `Dispatcher`.
     """
 
-    def __init__(self, *, debug: bool = False, logger: Logger | None = None) -> None:
+    def __init__(self, *, debug: bool = False, logger: logging.Logger | None = None) -> None:
         """Initialise the router and the command-clears-state outer middleware."""
         self._router = Router()
         self._debug = debug
-        self._logger: Logger = logger or LocalLogger()
+        self._logger: logging.Logger = logger or logging.getLogger(__name__)
         self._router.message.outer_middleware(self._clear_state_on_command)
 
     @property

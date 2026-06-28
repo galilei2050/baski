@@ -1,12 +1,12 @@
 """Async client for SerpAPI search engines (Google, Yelp, Google Maps, App Stores)."""
 
+import logging
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 
 from .. import get_env
-from ..server.logger import Logger
 
 __all__ = ["SerpApiClient"]
 
@@ -18,7 +18,7 @@ class SerpApiClient:
 
     def __init__(
         self,
-        logger: Logger,
+        logger: logging.Logger,
         http_client: httpx.AsyncClient,
     ) -> None:
         """Read API key from env and stash the shared HTTP client and logger."""
@@ -36,7 +36,12 @@ class SerpApiClient:
 
         self._logger.info(
             "SerpApi request",
-            labels={"serpapi_engine": engine, "params": {k: v for k, v in params.items() if k != "api_key"}},
+            extra={
+                "json_fields": {
+                    "serpapi_engine": engine,
+                    "params": {k: v for k, v in params.items() if k != "api_key"},
+                }
+            },
         )
 
         response = await self._http_client.request(method=method, url=url, **kwargs)

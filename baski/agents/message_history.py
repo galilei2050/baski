@@ -1,5 +1,6 @@
 """Conversation history: the Protocol the Agent depends on, plus an in-memory implementation."""
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, Self
@@ -13,8 +14,6 @@ from anthropic.types import (
     Usage,
 )
 from pydantic import BaseModel
-
-from baski.server.logger import Logger
 
 from .pricing import effective_input_tokens
 
@@ -143,7 +142,7 @@ class InMemoryMessageHistory(MessageHistory):
 
     def __init__(
         self,
-        logger: Logger,
+        logger: logging.Logger,
         max_tokens: int = 64_000,
         truncate_threshold: float = 0.9,
         truncate_percentage: float = 0.3,
@@ -240,9 +239,11 @@ class InMemoryMessageHistory(MessageHistory):
         removed = original - len(self._turns)
         self.logger.info(
             "Messages deleted by agent",
-            labels={
-                "turnIds": sorted(ids_to_remove),
-                "turnsRemoved": removed,
+            extra={
+                "json_fields": {
+                    "turnIds": sorted(ids_to_remove),
+                    "turnsRemoved": removed,
+                }
             },
         )
         return removed
@@ -260,12 +261,14 @@ class InMemoryMessageHistory(MessageHistory):
 
         self.logger.info(
             "Truncated message history",
-            labels={
-                "inputTokens": context_tokens,
-                "maxTokens": self.max_tokens,
-                "threshold": self.max_tokens * self.truncate_threshold,
-                "turnsRemoved": initial_count - len(self._turns),
-                "turnsBefore": initial_count,
-                "turnsAfter": len(self._turns),
+            extra={
+                "json_fields": {
+                    "inputTokens": context_tokens,
+                    "maxTokens": self.max_tokens,
+                    "threshold": self.max_tokens * self.truncate_threshold,
+                    "turnsRemoved": initial_count - len(self._turns),
+                    "turnsBefore": initial_count,
+                    "turnsAfter": len(self._turns),
+                }
             },
         )

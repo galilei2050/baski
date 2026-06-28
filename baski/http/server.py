@@ -6,17 +6,17 @@ import time
 import types
 from contextlib import asynccontextmanager
 from functools import cached_property
-from typing import Annotated, Any
+from typing import Any
 
 import google.cloud.firestore as firestore  # noqa: PLR0402 — `from google.cloud import X` form is broken for namespace pkg under mypy
 import google.cloud.pubsub as pubsub  # noqa: PLR0402 — see above
 import google.cloud.storage as storage  # noqa: PLR0402 — see above
 import httpx
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware import gzip, trustedhost
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from google.api_core.exceptions import GoogleAPICallError
 from google.auth import default as google_auth_default
 from google.genai.errors import APIError as GenAIAPIError
@@ -29,7 +29,7 @@ from pymongo.errors import PyMongoError
 
 from ..env import get_env
 from ..server.async_server import AsyncServer
-from .dependencies import get_logger
+from ..server.logger import seed_request_context
 from .exception_handlers import (
     genai_api_exception_handler,
     google_api_exception_handler,
@@ -128,7 +128,6 @@ class FastAPIServer(AsyncServer):
             "storage_client": self.storage_client,
             "config": self.config,
             "args": self.args,
-            "logging_client": self.logging_client,
         }
 
     async def __aexit__(
@@ -180,7 +179,17 @@ class FastAPIServer(AsyncServer):
         app.add_exception_handler(GenAIAPIError, genai_api_exception_handler)  # type: ignore[arg-type]
 
     def setup_middleware(self, app: FastAPI) -> None:
-        """Register all middleware (timeout, access log, trusted host, gzip, CORS)."""
+        """Register all middleware (context seeding, timeout, access log, trusted host, gzip, CORS)."""
+        project_id = self.config["project_id"]
+
+        # Outermost middleware: seed the per-request ambient log context (route label + Cloud Trace
+        # linkage) before anything else runs, so access logging and the exception handlers below all
+        # emit it. The contextvar lives in this request's task and dies with it — no manual reset.
+        @app.middleware("http")
+        async def _seed_log_context(request: Request, call_next: Any) -> Response:  # noqa: ANN401 — Starlette call_next is an untyped ASGI callable
+            seed_request_context(request, project_id=project_id)
+            return await call_next(request)
+
         app.add_middleware(RequestTimeoutMiddleware, timeout=1800)  # type: ignore[arg-type]
         app.add_middleware(AccessLogMiddleware)  # type: ignore[arg-type]
         app.add_middleware(trustedhost.TrustedHostMiddleware, allowed_hosts=["*"])
@@ -203,10 +212,7 @@ class FastAPIServer(AsyncServer):
 
         @app.get("/api/ping")
         @app.get("/api/health")
-        async def root(
-            request: Request,
-            logger: Annotated[Any, Depends(get_logger)],  # noqa: ANN401 — FastAPI Depends-injected Logger; concrete type erased by the framework
-        ) -> str:
+        async def root(request: Request) -> str:
             logger.info("I'm alive!")
             if "exception" in request.query_params:
                 raise RuntimeError("Exception requested")
@@ -214,10 +220,7 @@ class FastAPIServer(AsyncServer):
             return f"OK - running for {uptime} sec"
 
         @app.get("/api/status")
-        async def health_check(
-            request: Request,
-            logger: Annotated[Any, Depends(get_logger)],  # noqa: ANN401 — FastAPI Depends-injected Logger; concrete type erased by the framework
-        ) -> JSONResponse:
+        async def health_check(request: Request) -> JSONResponse:
             logger.info("Health check")
             await self.default_database.command("ping")
             credentials, project_id = google_auth_default()
