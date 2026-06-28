@@ -1,6 +1,7 @@
 """Request timeout middleware: abort handlers exceeding a per-request deadline."""
 
 import asyncio
+import logging
 from http import HTTPStatus
 
 from fastapi import FastAPI
@@ -8,9 +9,9 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
-from ..dependencies import get_logger
-
 __all__ = ["RequestTimeoutMiddleware"]
+
+logger = logging.getLogger(__name__)
 
 
 class RequestTimeoutMiddleware(BaseHTTPMiddleware):
@@ -26,7 +27,6 @@ class RequestTimeoutMiddleware(BaseHTTPMiddleware):
         try:
             return await asyncio.wait_for(call_next(request), timeout=self.timeout)
         except TimeoutError:
-            logger = get_logger(request)
             client_host = request.client.host if request.client else "?"
             logger.warning(f"Request Timeout after {self.timeout}: {client_host} -> {request.method} {request.url}")
             return Response(status_code=HTTPStatus.GATEWAY_TIMEOUT)

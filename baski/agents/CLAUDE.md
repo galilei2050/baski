@@ -23,7 +23,7 @@ Project-specific tools stay in the consuming project, NOT here. Canonical assemb
 
 ## Dependencies on baski
 
-`baski.primitives.{datetime,json}`, `baski.concurrent.as_async`, `baski.server.Logger`, `baski.clients.*`.
+`baski.primitives.{datetime,json}`, `baski.concurrent.as_async`, `logging.getLogger(__name__)` (stdlib; see http/CLAUDE.md "Logging"), `baski.clients.*`.
 
 ## Notes
 

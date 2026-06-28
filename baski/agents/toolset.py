@@ -1,14 +1,15 @@
 """Registry and executor for all agent tools."""
 
 import asyncio
+import logging
 import time
 
 from anthropic.types import MessageParam, ToolParam, ToolResultBlockParam, ToolUseBlock
 from pydantic import ValidationError
 
-from baski.server import Logger
-
 from .tool import Tool
+
+logger = logging.getLogger(__name__)
 
 
 def _format_validation_error(tool_name: str, exc: ValidationError) -> str:
@@ -26,10 +27,9 @@ def _format_validation_error(tool_name: str, exc: ValidationError) -> str:
 class ToolSet:
     """Registry and parallel executor for a named set of agent tools."""
 
-    def __init__(self, logger: Logger) -> None:
-        """Initialize an empty toolset with a logger for error reporting."""
+    def __init__(self) -> None:
+        """Initialize an empty toolset."""
         self._tools: dict[str, Tool] = {}
-        self.logger = logger
         self.last_timings: dict[str, int] = {}
 
     def __contains__(self, tool_name: str) -> bool:
@@ -79,7 +79,7 @@ class ToolSet:
         tool_input = tool_call.input
 
         if tool_name not in self._tools:
-            self.logger.error("Tool not found", labels={"toolName": tool_name})
+            logger.error("Tool not found", extra={"toolName": tool_name})
             self.last_timings[tool_call.id] = 0
             return ToolResultBlockParam(
                 type="tool_result",
@@ -95,7 +95,7 @@ class ToolSet:
         except ValidationError as exc:
             # Skip execute; hand the parsed error back so the model retries. Sibling calls still run.
             content = _format_validation_error(tool_name, exc)
-            self.logger.warning("Tool input invalid", labels={"toolName": tool_name, "error": content})
+            logger.warning("Tool input invalid", extra={"toolName": tool_name, "error": content})
             self.last_timings[tool_call.id] = 0
             return ToolResultBlockParam(
                 type="tool_result",
@@ -111,7 +111,7 @@ class ToolSet:
         except Exception as exc:
             # A tool raising must not kill the whole agent run. Hand the error back to
             # the model as a failed tool_result so it can recover or report it.
-            self.logger.exception("Tool execution failed", labels={"toolName": tool_name, "error": str(exc)})
+            logger.exception("Tool execution failed", extra={"toolName": tool_name, "error": str(exc)})
             self.last_timings[tool_call.id] = int((time.monotonic() - start) * 1000)
             return ToolResultBlockParam(
                 type="tool_result",

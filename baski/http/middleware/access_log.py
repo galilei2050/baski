@@ -1,5 +1,6 @@
 """Access log middleware: emits one info line per request in local mode."""
 
+import logging
 import time
 
 from fastapi import FastAPI
@@ -7,9 +8,9 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
-from ..dependencies import get_logger
-
 __all__ = ["AccessLogMiddleware"]
+
+logger = logging.getLogger(__name__)
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
@@ -27,6 +28,5 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         start = time.perf_counter()
         response = await call_next(request)
         duration_ms = int((time.perf_counter() - start) * 1000)
-        logger = get_logger(request)
         logger.info(f"{request.method} {request.url.path} {response.status_code} {duration_ms}ms")
         return response

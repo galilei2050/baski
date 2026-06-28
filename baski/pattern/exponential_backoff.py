@@ -7,6 +7,8 @@ import typing
 
 __all__ = ["UnavailableError", "retry"]
 
+logger = logging.getLogger(__name__)
+
 
 class UnavailableError(Exception):
     """Raised when retry exhausts all attempts."""
@@ -30,7 +32,6 @@ async def retry(  # noqa: PLR0913 — knob-rich tuning API; grouping into a conf
     max_wait_ms: int = 1000,
     service_name: str | None = None,
     wait_time_fn: typing.Callable = wait_time_function,
-    logger: logging.Logger | None = None,
     **kwargs: typing.Any,  # noqa: ANN401 — forwarded transparently to do()
 ) -> typing.Any:  # noqa: ANN401 — return value forwarded from arbitrary do()
     """Call do(**kwargs) up to times, sleeping between retries on listed exceptions."""
@@ -40,7 +41,6 @@ async def retry(  # noqa: PLR0913 — knob-rich tuning API; grouping into a conf
             return await do(**kwargs)
         except exceptions as e:
             wait_time = wait_time_fn(e, i, min_wait_ms, max_wait_ms)
-            _logger = logger or logging.getLogger(__name__)
-            _logger.warning(f"Got exception {type(e)}: '{e}'. retry after {wait_time / 1000} seconds")
+            logger.warning(f"Got exception {type(e)}: '{e}'. retry after {wait_time / 1000} seconds")
             await asyncio.sleep(wait_time / 1000)
     raise UnavailableError(f"Service {service_name} is unavailable after {times} retries")

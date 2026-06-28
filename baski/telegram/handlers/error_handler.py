@@ -1,14 +1,15 @@
 """Error-handling helpers for aiogram dispatchers."""
 
 import asyncio
+import logging
 from typing import Any, ClassVar
 
 from aiogram import types
 from aiogram.exceptions import TelegramForbiddenError, TelegramUnauthorizedError
 
-from ...server.logger import LocalLogger, Logger
-
 __all__ = ["I_AM_SORRY", "LogErrorHandler", "SaySorryHandler"]
+
+logger = logging.getLogger(__name__)
 
 
 I_AM_SORRY = {
@@ -22,17 +23,13 @@ I_AM_SORRY = {
 class SaySorryHandler:
     """Replies with an apology message. Register via `dp.errors.register(SaySorryHandler())`."""
 
-    def __init__(self, logger: Logger | None = None) -> None:
-        """Store logger; defaults to `LocalLogger`."""
-        self._logger: Logger = logger or LocalLogger()
-
     async def __call__(
         self,
         event: types.ErrorEvent,
         **_: Any,  # noqa: ANN401 — aiogram middleware/observer forwarding
     ) -> Any:  # noqa: ANN401 — aiogram middleware/observer forwarding
         """Log the exception and reply to the originating message."""
-        self._logger.warning(f"{event.exception}")
+        logger.warning(f"{event.exception}")
         message = _get_message_from_update(event.update)
         if message:
             return await message.reply(**self.get_text_from_exception(event.exception))
@@ -61,12 +58,10 @@ class LogErrorHandler:
         self,
         ignore_exceptions: tuple[type[BaseException], ...] = (),
         warning_exceptions: tuple[type[BaseException], ...] = (),
-        logger: Logger | None = None,
     ) -> None:
-        """Store exception categories and logger."""
+        """Store exception categories."""
         self.ignore_exceptions = self._DEFAULT_IGNORE + ignore_exceptions
         self.warning_exceptions = self._DEFAULT_WARN + warning_exceptions
-        self._logger: Logger = logger or LocalLogger()
 
     async def __call__(
         self,
@@ -81,11 +76,11 @@ class LogErrorHandler:
             # Cooperative mixin: real superclass provided by the concrete handler (e.g. TypedHandler).
             return await super().__call__(event, **kwargs)  # type: ignore[misc]
         except self.ignore_exceptions as e:
-            self._logger.info(f"From {user_id} ignore: {e}")
+            logger.info(f"From {user_id} ignore: {e}")
         except self.warning_exceptions as e:
-            self._logger.warning(f"From {user_id}: {e}")
+            logger.warning(f"From {user_id}: {e}")
         except Exception:
-            self._logger.exception(f"From {user_id} error")
+            logger.exception(f"From {user_id} error")
             raise
         return None
 

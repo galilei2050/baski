@@ -6,13 +6,13 @@ import time
 import types
 from contextlib import asynccontextmanager
 from functools import cached_property
-from typing import Annotated, Any
+from typing import Any
 
 import google.cloud.firestore as firestore  # noqa: PLR0402 — `from google.cloud import X` form is broken for namespace pkg under mypy
 import google.cloud.pubsub as pubsub  # noqa: PLR0402 — see above
 import google.cloud.storage as storage  # noqa: PLR0402 — see above
 import httpx
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware import gzip, trustedhost
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,7 +29,6 @@ from pymongo.errors import PyMongoError
 
 from ..env import get_env
 from ..server.async_server import AsyncServer
-from .dependencies import get_logger
 from .exception_handlers import (
     genai_api_exception_handler,
     google_api_exception_handler,
@@ -39,7 +38,7 @@ from .exception_handlers import (
     runtime_exception_handler,
     timeout_exception_handler,
 )
-from .middleware import AccessLogMiddleware, RequestTimeoutMiddleware
+from .middleware import AccessLogMiddleware, LogContextMiddleware, RequestTimeoutMiddleware
 from .mongo_logging import MongoQueryLogger
 
 __all__ = ["FastAPIServer"]
@@ -101,7 +100,7 @@ class FastAPIServer(AsyncServer):
         return AsyncMongoClient(
             str(get_env("MONGODB_URI")),
             tz_aware=True,
-            event_listeners=[MongoQueryLogger(logger=self.logger)],
+            event_listeners=[MongoQueryLogger()],
         )
 
     @cached_property
@@ -128,7 +127,6 @@ class FastAPIServer(AsyncServer):
             "storage_client": self.storage_client,
             "config": self.config,
             "args": self.args,
-            "logging_client": self.logging_client,
         }
 
     async def __aexit__(
@@ -180,7 +178,12 @@ class FastAPIServer(AsyncServer):
         app.add_exception_handler(GenAIAPIError, genai_api_exception_handler)  # type: ignore[arg-type]
 
     def setup_middleware(self, app: FastAPI) -> None:
-        """Register all middleware (timeout, access log, trusted host, gzip, CORS)."""
+        """Register all middleware (timeout, access log, trusted host, gzip, CORS, log context).
+
+        Starlette runs the LAST-added middleware outermost. LogContextMiddleware is added last so it
+        wraps everything else: it seeds the per-request ambient log context (route label + Cloud Trace
+        linkage) before access logging and the exception handlers run, so they all emit that context.
+        """
         app.add_middleware(RequestTimeoutMiddleware, timeout=1800)  # type: ignore[arg-type]
         app.add_middleware(AccessLogMiddleware)  # type: ignore[arg-type]
         app.add_middleware(trustedhost.TrustedHostMiddleware, allowed_hosts=["*"])
@@ -197,16 +200,14 @@ class FastAPIServer(AsyncServer):
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        app.add_middleware(LogContextMiddleware, project_id=self.config["project_id"])  # type: ignore[arg-type]
 
     def setup_routes(self, app: FastAPI) -> None:
         """Register the built-in ``/api/ping``, ``/api/health``, and ``/api/status`` routes."""
 
         @app.get("/api/ping")
         @app.get("/api/health")
-        async def root(
-            request: Request,
-            logger: Annotated[Any, Depends(get_logger)],  # noqa: ANN401 — FastAPI Depends-injected Logger; concrete type erased by the framework
-        ) -> str:
+        async def root(request: Request) -> str:
             logger.info("I'm alive!")
             if "exception" in request.query_params:
                 raise RuntimeError("Exception requested")
@@ -214,10 +215,7 @@ class FastAPIServer(AsyncServer):
             return f"OK - running for {uptime} sec"
 
         @app.get("/api/status")
-        async def health_check(
-            request: Request,
-            logger: Annotated[Any, Depends(get_logger)],  # noqa: ANN401 — FastAPI Depends-injected Logger; concrete type erased by the framework
-        ) -> JSONResponse:
+        async def health_check(request: Request) -> JSONResponse:
             logger.info("Health check")
             await self.default_database.command("ping")
             credentials, project_id = google_auth_default()

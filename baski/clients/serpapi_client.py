@@ -1,14 +1,16 @@
 """Async client for SerpAPI search engines (Google, Yelp, Google Maps, App Stores)."""
 
+import logging
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 
 from .. import get_env
-from ..server.logger import Logger
 
 __all__ = ["SerpApiClient"]
+
+logger = logging.getLogger(__name__)
 
 
 class SerpApiClient:
@@ -16,15 +18,10 @@ class SerpApiClient:
 
     BASE_URL = "https://serpapi.com"
 
-    def __init__(
-        self,
-        logger: Logger,
-        http_client: httpx.AsyncClient,
-    ) -> None:
-        """Read API key from env and stash the shared HTTP client and logger."""
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        """Read API key from env and stash the shared HTTP client."""
         self._api_key = str(get_env("SERPAPI_API_KEY")).strip()
         self._http_client = http_client
-        self._logger = logger
 
     async def request(self, method: str, engine: str, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — httpx request kwargs are polymorphic; SerpAPI JSON response
         """Issue an authenticated SerpAPI request and return JSON."""
@@ -34,9 +31,12 @@ class SerpApiClient:
         params["engine"] = engine
         kwargs["params"] = params
 
-        self._logger.info(
+        logger.info(
             "SerpApi request",
-            labels={"serpapi_engine": engine, "params": {k: v for k, v in params.items() if k != "api_key"}},
+            extra={
+                "serpapi_engine": engine,
+                "params": {k: v for k, v in params.items() if k != "api_key"},
+            },
         )
 
         response = await self._http_client.request(method=method, url=url, **kwargs)

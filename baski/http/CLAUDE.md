@@ -103,9 +103,11 @@ app.add_exception_handler(RequestValidationError, request_validation_exception_h
 app.add_exception_handler(Exception, runtime_exception_handler)
 ```
 
-### Logging Behavior
+### Logging
 
-All exception handlers use structured logging with labels:
+Logging is plain stdlib (`baski.server.logger`). **Every module declares `logger = logging.getLogger(__name__)` at top scope and uses it directly — never inject a logger** (no `logger` params, fields, or `logger=...` call args). Request context rides a contextvar, so a passed logger buys nothing; `getLogger(__name__)` gives the named hierarchy `configure_logging` relies on. Attach per-call structured fields via native `extra={...}` (each key becomes a top-level `jsonPayload.<key>`). Ambient per-request/task context comes from `log_context(...)`/`add_labels(...)` (a contextvar). Each HTTP request is seeded once by `LogContextMiddleware` (added outermost in `setup_middleware` so access logging + exception handlers carry it; calls `seed_request_context` → route label + Cloud Trace), so handlers just log. Cloud mode (`configure_logging(cloud=True)`) emits one JSON line per record to stdout for Cloud Run to ingest; local mode is readable.
+
+All exception handlers use structured logging:
 - **Downstream HTTP errors**: Include `downstream.status_code` and `downstream.content`
 - **Validation errors**: Include `errors` array and request `body`
 - **Runtime exceptions**: Include full `exc_info` traceback

@@ -35,7 +35,7 @@ def dump(data: Any, fp: IO[str]) -> None:  # noqa: ANN401 — JSON serializer ac
 
 def dumps(
     data: Any,  # noqa: ANN401 — JSON serializer accepts any JSON-compatible value
-    indent: int = 2,
+    indent: int | None = 2,  # None packs onto one line (e.g. a JSON log record per stdout line)
     *,
     sort_keys: bool = True,
 ) -> str:

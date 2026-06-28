@@ -14,11 +14,10 @@ from types import FrameType
 from typing import Any
 
 from google.cloud import firestore
-from google.cloud import logging as cloud_logging
 
 from ..env import get_env, is_cloud, is_debug, is_test, port, project_id
 from .config import AppConfig
-from .logger import CloudLogger, LocalLogger, Logger
+from .logger import configure_logging
 
 __all__ = ["AsyncServer"]
 
@@ -45,44 +44,18 @@ class AsyncServer:
     """Base for long-running processes: parses args, loads config, wires logging."""
 
     def __init__(self) -> None:
-        """Register SIGINT stacktrace handler, eagerly init the logging client."""
+        """Register the SIGINT stacktrace handler and wire up logging."""
         signal.signal(signal.SIGINT, handler)
-        _ = self.logging_client
+        configure_logging(cloud=self.config["cloud"], debug=self.config["debug"])
         logger.info("Init %s", self.name)
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Override in a subclass to register additional CLI arguments."""
 
     @cached_property
-    def logging_client(self) -> cloud_logging.Client | None:
-        """Return a Cloud Logging client in cloud mode, else configure stdlib logging."""
-        if self.config["cloud"]:
-            local_logging.root.handlers.clear()
-            logging_client = cloud_logging.Client()
-            logging_client.get_default_handler()
-            logging_client.setup_logging(log_level=local_logging.DEBUG if self.config["debug"] else local_logging.INFO)
-            local_logging.getLogger("httpx").setLevel(local_logging.WARNING)
-            return logging_client
-
-        local_logging.root.handlers.clear()
-        ch = local_logging.StreamHandler()
-        ch.setLevel(local_logging.DEBUG if self.config["debug"] else local_logging.INFO)
-        ch.setFormatter(local_logging.Formatter(style="{", fmt="{asctime} {levelname:7} {message}", datefmt="%H:%M:%S"))
-
-        local_logging.root.addHandler(ch)
-        local_logging.root.setLevel(local_logging.DEBUG if self.config["debug"] else local_logging.INFO)
-        local_logging.getLogger("httpx").setLevel(local_logging.WARNING)
-        return None
-
-    @cached_property
-    def logger(self) -> Logger:
-        """Return a process-scoped structured logger (Cloud or local)."""
-        # Process-scoped structured logger for background components that have
-        # no Request (e.g. the Mongo CommandListener). Request-scoped logging
-        # still goes through dependencies.get_logger(request).
-        if self.logging_client is not None:
-            return CloudLogger(logger_client=self.logging_client, project_id=self.config["project_id"])
-        return LocalLogger()
+    def logger(self) -> local_logging.Logger:
+        """Process-scoped logger for components with no request (e.g. the Mongo CommandListener)."""
+        return local_logging.getLogger("app")
 
     @cached_property
     def loop_executor(self) -> ThreadPoolExecutor:

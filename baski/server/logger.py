@@ -1,159 +1,121 @@
-"""Structured logger abstractions: base, Google Cloud Logging, and stdlib fallback."""
+"""Application logging on the standard library.
 
-import logging as python_logging
+A JSON line per record in cloud mode (Cloud Run ingests stdout into Cloud Logging) and a
+readable line locally.
+
+Log with the ordinary idiom anywhere — ``logging.getLogger(__name__)``. Attach structured
+fields per call with native ``extra={...}`` (each key lands at the top level of the JSON line,
+i.e. Cloud Logging ``jsonPayload.<key>``), or set ambient context that every log in the current
+request/task carries:
+
+    with log_context(customer_id="123"):     # auto-reset on exit
+        logging.getLogger(__name__).info("charged")   # -> field {"customer_id": "123"}
+
+Context lives in a contextvar, so concurrent requests never see each other's labels.
+"""
+
+import contextvars
+import logging
 import sys
-import traceback
-from typing import ClassVar
+from collections.abc import Generator, Mapping
+from contextlib import contextmanager
+from types import MappingProxyType
+from typing import Any
 
 from fastapi import Request
 from fastapi.encoders import jsonable_encoder
-from google.cloud import logging as google_logging
 
 from ..primitives import json
 
-__all__ = ["CloudLogger", "LocalLogger", "Logger"]
+__all__ = ["add_labels", "configure_logging", "log_context", "seed_request_context"]
 
 
-class Logger:
-    """Base structured logger. Subclasses implement the level methods; this one no-ops."""
-
-    BLOCKLISTED_HEADERS: ClassVar[list[str]] = [
-        "authorization",
-        "cookie",
-        "x-api-key",
-    ]
-
-    def __init__(self, request: Request | None = None) -> None:
-        """Capture request-derived labels and trace context for subsequent log calls."""
-        if request:
-            path_parts = [p for p in request.url.path.split("/") if p]
-            self._name = "root" if not path_parts else "_".join(path_parts)
-
-            # Extract trace context from headers
-            trace_header = request.headers.get("x-cloud-trace-context", "")
-            if trace_header:
-                trace_parts = trace_header.split("/")
-                self._trace_id = trace_parts[0] if trace_parts else None
-                self._span_id = trace_parts[1].split(";")[0] if len(trace_parts) > 1 else None
-            else:
-                self._trace_id = None
-                self._span_id = None
-
-            labels = {
-                "requestQueryParams": request.query_params,
-                "requestUrl": str(request.url),
-                "requestMethod": request.method,
-                "handler": self._name,
-            }
-        else:
-            self._name = "app"
-            self._trace_id = None
-            self._span_id = None
-            labels = {"handler": self._name}
-
-        self._labels = jsonable_encoder(labels)
-
-    def debug(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Emit a DEBUG-level structured log entry. No-op on the base class."""
-
-    def info(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Emit an INFO-level structured log entry. No-op on the base class."""
-
-    def warning(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Emit a WARNING-level structured log entry. No-op on the base class."""
-
-    def error(self, msg: str, labels: dict | None = None, exc_info: BaseException | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Emit an ERROR-level structured log entry. No-op on the base class."""
-
-    def exception(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Log at ERROR level with the currently-handled exception. Call only from within an `except` block."""
-        exc = sys.exc_info()[1]
-        self.error(msg, labels=labels, exc_info=exc)
+# Read-only default — every writer (.set) installs a fresh dict, so the shared default is never mutated.
+_labels: contextvars.ContextVar[Mapping[str, Any]] = contextvars.ContextVar("log_labels", default=MappingProxyType({}))
 
 
-class CloudLogger(Logger):
-    """Structured logger that writes to Google Cloud Logging via the python client."""
-
-    def __init__(
-        self,
-        logger_client: google_logging.Client,
-        request: Request | None = None,
-        project_id: str | None = None,
-    ) -> None:
-        """Initialize with a Cloud Logging client, optional request, and project ID for trace links."""
-        super().__init__(request)
-        self._project_id = project_id
-
-        self._logger: google_logging.Logger = logger_client.logger(
-            name="app",
-        )
-
-    def _make_log_data(
-        self,
-        msg: str,
-        severity: str,
-        labels: dict | None = None,  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        exc_info: BaseException | None = None,
-    ) -> dict:  # noqa: ANON002 — Cloud Logging log_struct payload, intentionally polymorphic
-        labels = self._labels | jsonable_encoder(labels or {})
-        log_data = labels | {"message": msg, "severity": severity}
-
-        # Add trace context for Google Cloud Logging
-        if self._trace_id:
-            log_data["trace"] = f"projects/{self._project_id}/traces/{self._trace_id}"
-        if self._span_id:
-            log_data["spanId"] = self._span_id
-
-        if exc_info:
-            log_data["excInfo"] = "".join(traceback.format_exception(type(exc_info), exc_info, exc_info.__traceback__))
-
-        return log_data
-
-    def debug(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Write a DEBUG entry to Cloud Logging."""
-        self._logger.log_struct(self._make_log_data(msg, "DEBUG", labels))
-
-    def info(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Write an INFO entry to Cloud Logging."""
-        self._logger.log_struct(self._make_log_data(msg, "INFO", labels))
-
-    def warning(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Write a WARNING entry to Cloud Logging."""
-        self._logger.log_struct(self._make_log_data(msg, "WARNING", labels))
-
-    def error(self, msg: str, labels: dict | None = None, exc_info: BaseException | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Write an ERROR entry to Cloud Logging, optionally including a traceback."""
-        self._logger.log_struct(self._make_log_data(msg, "ERROR", labels, exc_info))
+def add_labels(**labels: Any) -> None:  # noqa: ANN401 — arbitrary structured log fields
+    """Merge labels into the current task's ambient log context (no auto-reset)."""
+    _labels.set({**_labels.get(), **jsonable_encoder(labels)})
 
 
-class LocalLogger(Logger):
-    """Structured logger that routes through the stdlib root logger for local runs."""
+@contextmanager
+def log_context(**labels: Any) -> Generator[None, None, None]:  # noqa: ANN401 — arbitrary structured log fields
+    """Attach labels to every log emitted in this block; restore the prior context on exit."""
+    token = _labels.set({**_labels.get(), **jsonable_encoder(labels)})
+    try:
+        yield
+    finally:
+        _labels.reset(token)
 
-    def __init__(self, request: Request | None = None, *, skip_labels: bool = False) -> None:
-        """Initialize; set ``skip_labels`` to omit the JSON label suffix for cleaner local output."""
-        super().__init__(request)
-        self._logger = python_logging.root
-        self._skip_labels = skip_labels
 
-    def _make_log_data(self, msg: str, labels: dict | None = None) -> str:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        labels = self._labels | jsonable_encoder(labels or {})
-        if self._skip_labels:
-            return msg
-        # 17 chars aligns with "HH:MM:SS LEVEL   "
-        return msg + "\n" + " " * 17 + json.dumps(labels)
+def seed_request_context(request: Request, *, project_id: str | None = None) -> None:
+    """Seed ambient context from an HTTP request: route label and Cloud Trace linkage.
 
-    def debug(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Write a DEBUG entry to the stdlib root logger."""
-        self._logger.debug(self._make_log_data(msg, labels))
+    Call once per request (e.g. from middleware) so every log in the request carries it.
+    """
+    path_parts = [p for p in request.url.path.split("/") if p]
+    fields: dict[str, Any] = {
+        "handler": "_".join(path_parts) if path_parts else "root",
+        "requestUrl": str(request.url),
+        "requestMethod": request.method,
+        "requestQueryParams": dict(request.query_params),
+    }
+    trace = request.headers.get("x-cloud-trace-context", "")
+    if trace and project_id:
+        parts = trace.split("/")
+        if parts[0]:
+            fields["logging.googleapis.com/trace"] = f"projects/{project_id}/traces/{parts[0]}"
+        if len(parts) > 1 and parts[1]:
+            fields["logging.googleapis.com/spanId"] = parts[1].split(";")[0]
+    add_labels(**fields)
 
-    def info(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Write an INFO entry to the stdlib root logger."""
-        self._logger.info(self._make_log_data(msg, labels))
 
-    def warning(self, msg: str, labels: dict | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Write a WARNING entry to the stdlib root logger."""
-        self._logger.warning(self._make_log_data(msg, labels))
+# Attributes the stdlib sets on every LogRecord; anything else on a record came from extra={...}.
+_RESERVED = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime", "taskName"}
 
-    def error(self, msg: str, labels: dict | None = None, exc_info: BaseException | None = None) -> None:  # noqa: ANON002 — structured-log fields, intentionally polymorphic
-        """Write an ERROR entry to the stdlib root logger, optionally including a traceback."""
-        self._logger.error(self._make_log_data(msg, labels), exc_info=exc_info)
+
+def _fields(record: logging.LogRecord) -> dict[str, Any]:  # noqa: ANON002 — arbitrary structured log fields, intentionally polymorphic
+    """The task's ambient labels plus this record's own ``extra={...}`` fields (per-call wins)."""
+    extra = {key: value for key, value in record.__dict__.items() if key not in _RESERVED}
+    return {**_labels.get(), **extra}
+
+
+class _JsonFormatter(logging.Formatter):
+    """One Cloud Logging JSON line per record: `severity`/trace keys promote, the rest land in jsonPayload."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = _fields(record)
+        entry["severity"] = record.levelname
+        message = record.getMessage()
+        if record.exc_info:
+            message = f"{message}\n{self.formatException(record.exc_info)}"
+        entry["message"] = message
+        # One record per line — Cloud Logging splits stdout on newlines, so the JSON must not be indented.
+        return json.dumps(entry, indent=None)
+
+
+class _PrettyFormatter(logging.Formatter):
+    """Readable line plus any structured fields, for local runs."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        line = super().format(record)
+        fields = _fields(record)
+        if fields:
+            line += "\n" + " " * 17 + json.dumps(fields)  # aligns under "HH:MM:SS LEVEL   "
+        return line
+
+
+def configure_logging(*, cloud: bool, debug: bool) -> None:
+    """Install one root stdout handler: JSON in cloud mode, readable locally."""
+    handler = logging.StreamHandler(stream=sys.stdout)
+    handler.setFormatter(
+        _JsonFormatter()
+        if cloud
+        else _PrettyFormatter(style="{", fmt="{asctime} {levelname:7} {message}", datefmt="%H:%M:%S")
+    )
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(logging.DEBUG if debug else logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)

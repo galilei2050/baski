@@ -1,6 +1,7 @@
 """Async Playwright client that fetches pages and converts them to cleaned markdown."""
 
 import asyncio
+import logging
 from datetime import UTC
 from datetime import datetime as _dt
 from http import HTTPStatus
@@ -18,9 +19,9 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, Stor
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from ..server.logger import Logger
-
 __all__ = ["PlaywrightClient"]
+
+logger = logging.getLogger(__name__)
 
 _SAFARI_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) "
@@ -41,11 +42,10 @@ class PlaywrightClient:
     Note: Requires 'playwright install chromium' after pip install
     """
 
-    def __init__(  # noqa: PLR0913 — keyword-only browser-config knobs; each is an independent launch option
+    def __init__(
         self,
         *,
         headless: bool = True,
-        logger: Logger | None = None,
         timeout: int = 90000,
         storage_state: str | None = None,
         cdp_url: str | None = None,
@@ -63,7 +63,6 @@ class PlaywrightClient:
         in rather than opening a fresh isolated jar.
         """
         self.headless = headless
-        self.logger = logger
         self.timeout = timeout
         self.storage_state = storage_state
         self.cdp_url = cdp_url
@@ -155,8 +154,7 @@ class PlaywrightClient:
             raise RuntimeError("PlaywrightClient not initialized. Use async with context manager.")
 
         page = await self._context.new_page()
-        if self.logger:
-            self.logger.info("Fetching page", labels={"url": url})
+        logger.info("Fetching page", extra={"url": url})
 
         try:
             await self._safe_goto(page, url)
@@ -179,16 +177,18 @@ class PlaywrightClient:
                 if not _is_retryable_error(str(e)):
                     raise
                 last_error = e
-                if self.logger:
-                    self.logger.info(f"Attempt {attempt} failed, retrying", labels={"url": url, "error": str(e)[:100]})
+                logger.info(
+                    f"Attempt {attempt} failed, retrying",
+                    extra={"url": url, "error": str(e)[:100]},
+                )
                 continue
             if http_error is None:
                 return
             last_error = http_error
-            if self.logger:
-                self.logger.info(
-                    f"Attempt {attempt} failed", labels={"url": url, "status": http_error.response.status_code}
-                )
+            logger.info(
+                f"Attempt {attempt} failed",
+                extra={"url": url, "status": http_error.response.status_code},
+            )
         raise last_error or RuntimeError(f"Failed to fetch page: {url}")
 
     async def _attempt_goto(self, page: Page, url: str) -> HTTPStatusError | None:
@@ -208,9 +208,6 @@ class PlaywrightClient:
 
     async def _dump_error_context(self, page: Page, url: str, error: Exception) -> None:
         """Save screenshot and HTML on error for debugging."""
-        if not self.logger:
-            return
-
         await asyncio.to_thread(_ERROR_DIR.mkdir, parents=True, exist_ok=True)
         timestamp = _dt.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
         error_prefix = _ERROR_DIR / timestamp
@@ -225,12 +222,17 @@ class PlaywrightClient:
             await asyncio.to_thread(Path(screenshot_path).write_bytes, screenshot_bytes)
             await asyncio.to_thread(Path(html_path).write_text, html_content)
 
-            self.logger.info(
+            logger.info(
                 "Error context saved",
-                labels={"url": url, "screenshot": screenshot_path, "html": html_path, "error": str(error)[:100]},
+                extra={
+                    "url": url,
+                    "screenshot": screenshot_path,
+                    "html": html_path,
+                    "error": str(error)[:100],
+                },
             )
         except Exception as e:  # noqa: BLE001 — debug dump must not crash the main error handler
-            self.logger.info("Failed to dump error context", labels={"error": str(e)})
+            logger.info("Failed to dump error context", extra={"error": str(e)})
 
 
 _NAV_SELECTORS = (

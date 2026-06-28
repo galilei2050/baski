@@ -1,13 +1,14 @@
 """MongoDB command listener that emits structured per-query logs with timings."""
 
+import logging
 import time
 from collections import OrderedDict
 
 from pymongo.monitoring import CommandFailedEvent, CommandListener, CommandStartedEvent, CommandSucceededEvent
 
-from ..server.logger import Logger
-
 __all__ = ["MongoQueryLogger"]
+
+logger = logging.getLogger(__name__)
 
 
 # durationMs above this threshold flips the entry to severity=WARNING and sets
@@ -118,9 +119,8 @@ def _build_labels(*, command: dict, command_name: str, duration_ms: float) -> di
 class MongoQueryLogger(CommandListener):
     """Pymongo CommandListener that logs each command with timing and shape."""
 
-    def __init__(self, *, logger: Logger) -> None:
-        """Initialize with the logger used to emit per-query records."""
-        self._logger = logger
+    def __init__(self) -> None:
+        """Initialize the in-flight command tracker."""
         # Maps request_id → (start_monotonic, command_dict, command_name)
         self._starts: OrderedDict[int, tuple[float, dict, str]] = OrderedDict()
 
@@ -134,7 +134,7 @@ class MongoQueryLogger(CommandListener):
         """Log a successful command with duration and result size."""
         start = self._starts.pop(event.request_id, None)
         if start is None:
-            self._logger.warning("mongo.query missing started event", labels={"requestId": event.request_id})
+            logger.warning("mongo.query missing started event", extra={"requestId": event.request_id})
             return
         _, command, command_name = start
         duration_ms = round(event.duration_micros / 1000, 3)
@@ -143,18 +143,18 @@ class MongoQueryLogger(CommandListener):
         # Slow queries are surfaced at WARNING so a single severity filter
         # in Cloud Logging shows everything worth investigating.
         if labels["slow"]:
-            self._logger.warning("mongo.query", labels=labels)
+            logger.warning("mongo.query", extra=labels)
         else:
-            self._logger.info("mongo.query", labels=labels)
+            logger.info("mongo.query", extra=labels)
 
     def failed(self, event: CommandFailedEvent) -> None:
         """Log a failed command with duration and failure detail."""
         start = self._starts.pop(event.request_id, None)
         if start is None:
-            self._logger.warning("mongo.query missing started event", labels={"requestId": event.request_id})
+            logger.warning("mongo.query missing started event", extra={"requestId": event.request_id})
             return
         _, command, command_name = start
         duration_ms = round(event.duration_micros / 1000, 3)
         labels = _build_labels(command=command, command_name=command_name, duration_ms=duration_ms)
         labels["error"] = str(event.failure)
-        self._logger.warning("mongo.query", labels=labels)
+        logger.warning("mongo.query", extra=labels)

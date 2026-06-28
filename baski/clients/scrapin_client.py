@@ -1,13 +1,15 @@
 """Async client for the Scrapin enrichment API (LinkedIn company/profile data)."""
 
+import logging
 from typing import Any
 
 import httpx
 
 from .. import get_env
-from ..server.logger import Logger
 
 __all__ = ["ScrapinClient"]
+
+logger = logging.getLogger(__name__)
 
 
 class ScrapinClient:
@@ -15,15 +17,10 @@ class ScrapinClient:
 
     BASE_URL = "https://api.scrapin.io"
 
-    def __init__(
-        self,
-        logger: Logger,
-        http_client: httpx.AsyncClient,
-    ) -> None:
-        """Read API key from env and stash the shared HTTP client and logger."""
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        """Read API key from env and stash the shared HTTP client."""
         self._api_key = str(get_env("SCRAPIN_API_KEY")).strip()
         self._http_client = http_client
-        self._logger = logger
 
     async def request(self, method: str, endpoint: str, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — httpx request kwargs are polymorphic; Scrapin JSON response
         """Issue an authenticated HTTP request; returns {} on 404, raises on other errors."""
@@ -36,7 +33,7 @@ class ScrapinClient:
         if "json" in kwargs:
             log_data["body"] = kwargs["json"]
 
-        self._logger.info("Scrapin request", labels=log_data)
+        logger.info("Scrapin request", extra=log_data)
 
         response = await self._http_client.request(method=method, url=url, **kwargs)
         if response.status_code == httpx.codes.NOT_FOUND:

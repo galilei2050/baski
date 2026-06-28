@@ -1,5 +1,6 @@
 """Conversation history: the Protocol the Agent depends on, plus an in-memory implementation."""
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, Self
@@ -14,9 +15,9 @@ from anthropic.types import (
 )
 from pydantic import BaseModel
 
-from baski.server.logger import Logger
-
 from .pricing import effective_input_tokens
+
+logger = logging.getLogger(__name__)
 
 EPHEMERAL_CACHE = CacheControlEphemeralParam(type="ephemeral")
 
@@ -143,7 +144,6 @@ class InMemoryMessageHistory(MessageHistory):
 
     def __init__(
         self,
-        logger: Logger,
         max_tokens: int = 64_000,
         truncate_threshold: float = 0.9,
         truncate_percentage: float = 0.3,
@@ -153,7 +153,6 @@ class InMemoryMessageHistory(MessageHistory):
         self.max_tokens = max_tokens
         self.truncate_threshold = truncate_threshold
         self.truncate_percentage = truncate_percentage
-        self.logger = logger
         self._next_turn_id: int = 0
         self._current_turn: Turn | None = None
         self._last_input_tokens: int = 0
@@ -238,9 +237,9 @@ class InMemoryMessageHistory(MessageHistory):
         original = len(self._turns)
         self._turns = [t for t in self._turns if t.id not in ids_to_remove]
         removed = original - len(self._turns)
-        self.logger.info(
+        logger.info(
             "Messages deleted by agent",
-            labels={
+            extra={
                 "turnIds": sorted(ids_to_remove),
                 "turnsRemoved": removed,
             },
@@ -258,9 +257,9 @@ class InMemoryMessageHistory(MessageHistory):
         initial_count = len(self._turns)
         self._turns = self._turns[turns_to_remove:]
 
-        self.logger.info(
+        logger.info(
             "Truncated message history",
-            labels={
+            extra={
                 "inputTokens": context_tokens,
                 "maxTokens": self.max_tokens,
                 "threshold": self.max_tokens * self.truncate_threshold,

@@ -1,6 +1,7 @@
 """Telemetry client that publishes structured events to a Pub/Sub topic."""
 
 import json
+import logging
 import uuid
 from datetime import datetime as _dt
 from typing import Any
@@ -9,10 +10,11 @@ from google.api_core import exceptions as gapi_exceptions
 from google.cloud import pubsub
 
 from ..primitives import datetime
-from ..server.logger import LocalLogger, Logger
 from .event_schema import EventSchema
 
 __all__ = ["Telemetry"]
+
+logger = logging.getLogger(__name__)
 
 
 class Telemetry:
@@ -20,20 +22,18 @@ class Telemetry:
 
     _schema = EventSchema()
 
-    def __init__(  # noqa: PLR0913 — publisher/project/topic/publish/logger are all independent injection points
+    def __init__(
         self,
         publisher: pubsub.PublisherClient,
         project_id: str,
         topic_name: str = "event",
         *,
         publish: bool = True,
-        logger: Logger | None = None,
     ) -> None:
-        """Configure the publisher, topic path, publish toggle, and logger."""
+        """Configure the publisher, topic path, and publish toggle."""
         self.publisher = publisher
         self.topic_path = self.publisher.topic_path(project_id, topic_name)
         self.publish = publish
-        self._logger: Logger = logger or LocalLogger()
 
     def add(
         self,
@@ -55,7 +55,7 @@ class Telemetry:
             if self.publish:
                 self.publisher.publish(self.topic_path, data=queue_item.encode("utf-8"))
         except (TypeError, ValueError, gapi_exceptions.GoogleAPICallError) as e:
-            self._logger.warning(f"Failed to add telemetry event: {e}")
+            logger.warning(f"Failed to add telemetry event: {e}")
 
 
 def _clean_dict(data: dict) -> dict:  # noqa: ANON002 — polymorphic helper for arbitrary nested telemetry payloads

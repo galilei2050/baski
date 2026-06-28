@@ -1,5 +1,6 @@
 """Async client for the Specter (tryspecter.com) company enrichment API."""
 
+import logging
 from http import HTTPStatus
 from typing import Any
 
@@ -7,9 +8,10 @@ import httpx
 from google.cloud import storage
 
 from .. import get_env
-from ..server.logger import Logger
 
 __all__ = ["SpectrClient"]
+
+logger = logging.getLogger(__name__)
 
 
 class SpectrClient:
@@ -17,14 +19,12 @@ class SpectrClient:
 
     def __init__(
         self,
-        logger: Logger,
         http_client: httpx.AsyncClient,
         dataset_bucket: storage.Bucket | None = None,
     ) -> None:
-        """Read API key from env and stash the shared HTTP client, logger, and dataset bucket."""
+        """Read API key from env and stash the shared HTTP client and dataset bucket."""
         self._api_key = str(get_env("SPECTR_API_KEY")).strip()
         self._http_client = http_client
-        self._logger = logger
         self._base_url = "https://app.tryspecter.com/api/v1"
         self._dataset_bucket = dataset_bucket
 
@@ -49,9 +49,9 @@ class SpectrClient:
             "reset": response.headers.get("X-CreditLimit-Reset"),
         }
         kwargs.pop("headers", None)
-        self._logger.info(
+        logger.info(
             "Spectr request",
-            labels={
+            extra={
                 "spectrEndpoint": endpoint,
                 "rateLimit": rate_limit,
                 "creditLimit": credit_limit,
