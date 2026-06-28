@@ -123,7 +123,9 @@ class Agent:
             "model": config.model,
             "tools": tools,
             "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
-            "thinking": {"type": "adaptive"},
+            # display=summarized so the thinking lands in the response (and our trace); the API
+            # otherwise returns it omitted (empty thinking, signature only) for Opus 4.7+.
+            "thinking": {"type": "adaptive", "display": "summarized"},
             "max_tokens": 128_000,
         } | params
 
