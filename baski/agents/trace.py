@@ -21,6 +21,8 @@ from baski.primitives import datetime, json
 from .execute_result import AgentExecuteResult
 from .pricing import ExecutionStats
 
+logger = logging.getLogger(__name__)
+
 TRACES_PREFIX = "traces/"
 
 
@@ -43,7 +45,6 @@ class TraceCollectorConfig(NamedTuple):
     system_prompt: str
     bucket_name: str
     database: AsyncDatabase
-    logger: logging.Logger
     local_traces_dir: str | None = None  # write the full trace here instead of GCS; None → GCS
 
 
@@ -134,7 +135,6 @@ class TraceCollector:
         self._system_prompt = config.system_prompt
         self._bucket_name = config.bucket_name
         self._database = config.database
-        self._logger = config.logger
         self._local_traces_dir = config.local_traces_dir
         self._turns: list[TurnRecord] = []
         self._result: AgentExecuteResult | None = None
@@ -179,7 +179,7 @@ class TraceCollector:
             elif isinstance(block, ToolUseBlock):
                 turn.tool_calls.append(block)
             else:
-                self._logger.warning("Unknown content block type", extra={"blockType": type(block).__name__})
+                logger.warning("Unknown content block type", extra={"blockType": type(block).__name__})
 
         _ = api_duration_ms  # recorded at turn level via end_turn timing
 
@@ -281,9 +281,9 @@ class TraceCollector:
             upload_error = str(e)
 
         if upload_error is not None:
-            self._logger.error("Failed to upload trace", extra={"traceId": self.id, "error": upload_error})
+            logger.error("Failed to upload trace", extra={"traceId": self.id, "error": upload_error})
         else:
-            self._logger.info("Trace uploaded", extra={"traceId": self.id})
+            logger.info("Trace uploaded", extra={"traceId": self.id})
 
     async def _save_to_db(self, stats: ExecutionStats) -> None:
         """Save lightweight trace summary to MongoDB."""
@@ -302,6 +302,6 @@ class TraceCollector:
         try:
             await self._database["traces"].insert_one(doc)
         except PyMongoError:
-            self._logger.exception("Failed to save trace to DB", extra={"traceId": self.id})
+            logger.exception("Failed to save trace to DB", extra={"traceId": self.id})
             return
-        self._logger.info("Trace saved to DB", extra={"traceId": self.id})
+        logger.info("Trace saved to DB", extra={"traceId": self.id})

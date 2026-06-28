@@ -20,6 +20,8 @@ from .pricing import ExecutionStats
 from .toolset import ToolSet
 from .trace import TraceCollector, TraceCollectorConfig
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_MODEL = "claude-opus-4-8"
 
 AGENT_LOOP_GUIDANCE = (
@@ -77,7 +79,6 @@ class AgentConfig(NamedTuple):
     collected by the toolset — no tool needs a dedicated config field.
     """
 
-    logger: logging.Logger
     toolset: ToolSet
     message_history: MessageHistory
     anthropic_client: AsyncAnthropic
@@ -99,7 +100,6 @@ class Agent:
         tool start/finish, completion) as the loop runs — the seam for live progress UIs.
         The agent stays transport-agnostic; the listener owns rendering.
         """
-        self.logger = config.logger
         self.database = config.database
         self.bucket_name = config.bucket_name
         self.anthropic_client = config.anthropic_client
@@ -168,7 +168,7 @@ class Agent:
                     raise
                 if retry_count < max_retries:
                     retry_count += 1
-                    self.logger.warning(
+                    logger.warning(
                         "Anthropic API error, retrying",
                         extra={"retryCount": retry_count, "maxRetries": max_retries, "error": str(e)},
                     )
@@ -191,11 +191,11 @@ class Agent:
             if isinstance(block, ToolUseBlock):
                 tool_calls.append(block)
             elif isinstance(block, ThinkingBlock):
-                self.logger.info("Thinking", extra={"thinking": block.thinking})
+                logger.info("Thinking", extra={"thinking": block.thinking})
             elif isinstance(block, TextBlock):
                 text_blocks.append(block)
             else:
-                self.logger.warning("Unknown content block type", extra={"blockType": type(block).__name__})
+                logger.warning("Unknown content block type", extra={"blockType": type(block).__name__})
 
         return ParsedResponse(tool_calls=tool_calls, text_blocks=text_blocks)
 
@@ -224,7 +224,7 @@ class Agent:
     ) -> None:
         """Execute tool calls and record results in history and trace."""
         stats.tool_calls += len(tool_calls)
-        self.logger.info(
+        logger.info(
             "Tools execution",
             extra={"toolCount": len(tool_calls), "tools": [tc.name for tc in tool_calls]},
         )
@@ -253,7 +253,7 @@ class Agent:
         if not text_blocks:
             return None
         message_to_user = "\n".join([b.text for b in text_blocks])
-        self.logger.info("Text received", extra={"message_to_user": message_to_user})
+        logger.info("Text received", extra={"message_to_user": message_to_user})
         return message_to_user
 
     async def _emit_step_events(self, message: Message, parsed: ParsedResponse) -> str | None:
@@ -322,7 +322,7 @@ class Agent:
         preserved across calls. Step events go to the constructor's `on_event` listener.
         """
         label = self._request_label()
-        self.logger.info("Agent execution started", extra={"userRequest": label[:100]})
+        logger.info("Agent execution started", extra={"userRequest": label[:100]})
 
         stats = ExecutionStats(model=str(self.params["model"]))
         trace = TraceCollector(
@@ -332,7 +332,6 @@ class Agent:
                 system_prompt=await self._system(),
                 bucket_name=self.bucket_name,
                 database=self.database,
-                logger=self.logger,
                 local_traces_dir=self._local_traces_dir,
             )
         )
@@ -349,7 +348,7 @@ class Agent:
 
         await self.on_event(Completed(response=turn.message_to_user))
 
-        self.logger.info(
+        logger.info(
             "Agent execution complete",
             extra={"userRequest": label[:100], "traceId": trace.id, **stats.for_logs().model_dump()},
         )

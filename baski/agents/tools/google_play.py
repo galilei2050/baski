@@ -1,7 +1,5 @@
 """Tool for fetching Google Play developer app data via SerpApi."""
 
-import logging
-
 from pydantic import BaseModel, Field
 
 from baski.clients.serpapi_client import SerpApiClient
@@ -23,10 +21,9 @@ class GooglePlayTool(Tool):
 
         developer_id: str = Field(description="Google Play developer ID (e.g., 'Zibra+AI' or 'com.developer.name')")
 
-    def __init__(self, serpapi_client: SerpApiClient, logger: logging.Logger) -> None:
-        """Store SerpApi client and logger."""
+    def __init__(self, serpapi_client: SerpApiClient) -> None:
+        """Store the SerpApi client."""
         self.serpapi_client = serpapi_client
-        self.logger = logger
 
     async def execute(self, developer_id: str) -> str:  # type: ignore[override]
         """Fetch Google Play data for a developer and return formatted result."""

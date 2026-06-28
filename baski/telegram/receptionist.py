@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 __all__ = ["Receptionist"]
 
+logger = logging.getLogger(__name__)
+
 
 class Receptionist:
     """Thin wrapper over an aiogram v3 `Router`.
@@ -27,11 +29,10 @@ class Receptionist:
     Call `mount(dp)` once after registering handlers to attach the router to a `Dispatcher`.
     """
 
-    def __init__(self, *, debug: bool = False, logger: logging.Logger | None = None) -> None:
+    def __init__(self, *, debug: bool = False) -> None:
         """Initialise the router and the command-clears-state outer middleware."""
         self._router = Router()
         self._debug = debug
-        self._logger: logging.Logger = logger or logging.getLogger(__name__)
         self._router.message.outer_middleware(self._clear_state_on_command)
 
     @property
@@ -91,5 +92,5 @@ class Receptionist:
                 try:
                     await state.clear()
                 except KeyError:
-                    self._logger.warning("State not found in storage")
+                    logger.warning("State not found in storage")
         return await handler(event, data)

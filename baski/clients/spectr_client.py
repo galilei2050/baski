@@ -11,20 +11,20 @@ from .. import get_env
 
 __all__ = ["SpectrClient"]
 
+logger = logging.getLogger(__name__)
+
 
 class SpectrClient:
     """Thin wrapper around the Specter REST API."""
 
     def __init__(
         self,
-        logger: logging.Logger,
         http_client: httpx.AsyncClient,
         dataset_bucket: storage.Bucket | None = None,
     ) -> None:
-        """Read API key from env and stash the shared HTTP client, logger, and dataset bucket."""
+        """Read API key from env and stash the shared HTTP client and dataset bucket."""
         self._api_key = str(get_env("SPECTR_API_KEY")).strip()
         self._http_client = http_client
-        self._logger = logger
         self._base_url = "https://app.tryspecter.com/api/v1"
         self._dataset_bucket = dataset_bucket
 
@@ -49,7 +49,7 @@ class SpectrClient:
             "reset": response.headers.get("X-CreditLimit-Reset"),
         }
         kwargs.pop("headers", None)
-        self._logger.info(
+        logger.info(
             "Spectr request",
             extra={
                 "spectrEndpoint": endpoint,

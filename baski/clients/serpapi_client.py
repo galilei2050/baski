@@ -10,21 +10,18 @@ from .. import get_env
 
 __all__ = ["SerpApiClient"]
 
+logger = logging.getLogger(__name__)
+
 
 class SerpApiClient:
     """Thin wrapper around the SerpAPI REST API."""
 
     BASE_URL = "https://serpapi.com"
 
-    def __init__(
-        self,
-        logger: logging.Logger,
-        http_client: httpx.AsyncClient,
-    ) -> None:
-        """Read API key from env and stash the shared HTTP client and logger."""
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        """Read API key from env and stash the shared HTTP client."""
         self._api_key = str(get_env("SERPAPI_API_KEY")).strip()
         self._http_client = http_client
-        self._logger = logger
 
     async def request(self, method: str, engine: str, **kwargs: Any) -> dict:  # noqa: ANN401, ANON002 — httpx request kwargs are polymorphic; SerpAPI JSON response
         """Issue an authenticated SerpAPI request and return JSON."""
@@ -34,7 +31,7 @@ class SerpApiClient:
         params["engine"] = engine
         kwargs["params"] = params
 
-        self._logger.info(
+        logger.info(
             "SerpApi request",
             extra={
                 "serpapi_engine": engine,

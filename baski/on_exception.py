@@ -11,8 +11,7 @@ from .primitives.name import fn_name
 __all__ = ["do_nothing", "do_nothing_sync", "on_exception"]
 
 
-# Default logger for cases where no logger is available
-_default_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 async def do_nothing(
@@ -33,21 +32,20 @@ def do_nothing_sync(
 
 def _log_handled_exception(  # noqa: PLR0913 — internal helper; all params load-bearing and called from a single site
     exc: BaseException,
-    _logger: logging.Logger,
     name: str,
     args: tuple,
     kwargs: dict,  # noqa: ANON002 — wraps arbitrary user function
     warn_exceptions: tuple,
     skip_traceback_exceptions: tuple,
 ) -> None:
-    _logger.info(f"{name} called with {args}, {kwargs}")
+    logger.info(f"{name} called with {args}, {kwargs}")
     msg = f"{exc} while call {name}"
     if isinstance(exc, warn_exceptions):
-        _logger.warning(msg)
+        logger.warning(msg)
     elif isinstance(exc, skip_traceback_exceptions):
-        _logger.error(msg)
+        logger.error(msg)
     else:
-        _logger.exception(msg)
+        logger.exception(msg)
 
 
 async def _invoke_handler(  # noqa: PLR0913 — internal helper called from a single site; all params load-bearing
@@ -69,7 +67,6 @@ def on_exception(  # noqa: PLR0913 — decorator factory; each option configures
     skip_traceback_exceptions: tuple = (),
     warn_exceptions: tuple = (),
     name: str | None = None,
-    logger: logging.Logger | None = None,
 ) -> typing.Callable:
     """Wrap an async function so listed exceptions are logged and forwarded to do()."""
 
@@ -78,7 +75,6 @@ def on_exception(  # noqa: PLR0913 — decorator factory; each option configures
         if not inspect.iscoroutinefunction(fn):
             raise TypeError(f"on_exception supports async functions only, got {_name}")
         is_do_async = inspect.iscoroutinefunction(do)
-        _logger = logger or _default_logger
 
         @wraps(fn)
         async def inner(
@@ -88,12 +84,11 @@ def on_exception(  # noqa: PLR0913 — decorator factory; each option configures
             try:
                 ret_val = await fn(*args, **kwargs)
             except asyncio.CancelledError:
-                _logger.warning("Coroutine %s was cancelled.", _name)
+                logger.warning("Coroutine %s was cancelled.", _name)
                 return None
             except exceptions as e:
                 _log_handled_exception(
                     exc=e,
-                    _logger=_logger,
                     name=_name,
                     args=args,
                     kwargs=kwargs,

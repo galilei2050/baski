@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware import gzip, trustedhost
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 from google.api_core.exceptions import GoogleAPICallError
 from google.auth import default as google_auth_default
 from google.genai.errors import APIError as GenAIAPIError
@@ -29,7 +29,6 @@ from pymongo.errors import PyMongoError
 
 from ..env import get_env
 from ..server.async_server import AsyncServer
-from ..server.logger import seed_request_context
 from .exception_handlers import (
     genai_api_exception_handler,
     google_api_exception_handler,
@@ -39,7 +38,7 @@ from .exception_handlers import (
     runtime_exception_handler,
     timeout_exception_handler,
 )
-from .middleware import AccessLogMiddleware, RequestTimeoutMiddleware
+from .middleware import AccessLogMiddleware, LogContextMiddleware, RequestTimeoutMiddleware
 from .mongo_logging import MongoQueryLogger
 
 __all__ = ["FastAPIServer"]
@@ -101,7 +100,7 @@ class FastAPIServer(AsyncServer):
         return AsyncMongoClient(
             str(get_env("MONGODB_URI")),
             tz_aware=True,
-            event_listeners=[MongoQueryLogger(logger=self.logger)],
+            event_listeners=[MongoQueryLogger()],
         )
 
     @cached_property
@@ -179,17 +178,12 @@ class FastAPIServer(AsyncServer):
         app.add_exception_handler(GenAIAPIError, genai_api_exception_handler)  # type: ignore[arg-type]
 
     def setup_middleware(self, app: FastAPI) -> None:
-        """Register all middleware (context seeding, timeout, access log, trusted host, gzip, CORS)."""
-        project_id = self.config["project_id"]
+        """Register all middleware (timeout, access log, trusted host, gzip, CORS, log context).
 
-        # Outermost middleware: seed the per-request ambient log context (route label + Cloud Trace
-        # linkage) before anything else runs, so access logging and the exception handlers below all
-        # emit it. The contextvar lives in this request's task and dies with it — no manual reset.
-        @app.middleware("http")
-        async def _seed_log_context(request: Request, call_next: Any) -> Response:  # noqa: ANN401 — Starlette call_next is an untyped ASGI callable
-            seed_request_context(request, project_id=project_id)
-            return await call_next(request)
-
+        Starlette runs the LAST-added middleware outermost. LogContextMiddleware is added last so it
+        wraps everything else: it seeds the per-request ambient log context (route label + Cloud Trace
+        linkage) before access logging and the exception handlers run, so they all emit that context.
+        """
         app.add_middleware(RequestTimeoutMiddleware, timeout=1800)  # type: ignore[arg-type]
         app.add_middleware(AccessLogMiddleware)  # type: ignore[arg-type]
         app.add_middleware(trustedhost.TrustedHostMiddleware, allowed_hosts=["*"])
@@ -206,6 +200,7 @@ class FastAPIServer(AsyncServer):
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        app.add_middleware(LogContextMiddleware, project_id=self.config["project_id"])  # type: ignore[arg-type]
 
     def setup_routes(self, app: FastAPI) -> None:
         """Register the built-in ``/api/ping``, ``/api/health``, and ``/api/status`` routes."""
