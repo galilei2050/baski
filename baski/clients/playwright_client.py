@@ -155,7 +155,7 @@ class PlaywrightClient:
 
         page = await self._context.new_page()
         if self.logger:
-            self.logger.info("Fetching page", extra={"json_fields": {"url": url}})
+            self.logger.info("Fetching page", extra={"url": url})
 
         try:
             await self._safe_goto(page, url)
@@ -181,7 +181,7 @@ class PlaywrightClient:
                 if self.logger:
                     self.logger.info(
                         f"Attempt {attempt} failed, retrying",
-                        extra={"json_fields": {"url": url, "error": str(e)[:100]}},
+                        extra={"url": url, "error": str(e)[:100]},
                     )
                 continue
             if http_error is None:
@@ -190,7 +190,7 @@ class PlaywrightClient:
             if self.logger:
                 self.logger.info(
                     f"Attempt {attempt} failed",
-                    extra={"json_fields": {"url": url, "status": http_error.response.status_code}},
+                    extra={"url": url, "status": http_error.response.status_code},
                 )
         raise last_error or RuntimeError(f"Failed to fetch page: {url}")
 
@@ -231,16 +231,14 @@ class PlaywrightClient:
             self.logger.info(
                 "Error context saved",
                 extra={
-                    "json_fields": {
-                        "url": url,
-                        "screenshot": screenshot_path,
-                        "html": html_path,
-                        "error": str(error)[:100],
-                    }
+                    "url": url,
+                    "screenshot": screenshot_path,
+                    "html": html_path,
+                    "error": str(error)[:100],
                 },
             )
         except Exception as e:  # noqa: BLE001 — debug dump must not crash the main error handler
-            self.logger.info("Failed to dump error context", extra={"json_fields": {"error": str(e)}})
+            self.logger.info("Failed to dump error context", extra={"error": str(e)})
 
 
 _NAV_SELECTORS = (

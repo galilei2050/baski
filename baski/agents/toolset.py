@@ -78,7 +78,7 @@ class ToolSet:
         tool_input = tool_call.input
 
         if tool_name not in self._tools:
-            self.logger.error("Tool not found", extra={"json_fields": {"toolName": tool_name}})
+            self.logger.error("Tool not found", extra={"toolName": tool_name})
             self.last_timings[tool_call.id] = 0
             return ToolResultBlockParam(
                 type="tool_result",
@@ -94,7 +94,7 @@ class ToolSet:
         except ValidationError as exc:
             # Skip execute; hand the parsed error back so the model retries. Sibling calls still run.
             content = _format_validation_error(tool_name, exc)
-            self.logger.warning("Tool input invalid", extra={"json_fields": {"toolName": tool_name, "error": content}})
+            self.logger.warning("Tool input invalid", extra={"toolName": tool_name, "error": content})
             self.last_timings[tool_call.id] = 0
             return ToolResultBlockParam(
                 type="tool_result",
@@ -110,9 +110,7 @@ class ToolSet:
         except Exception as exc:
             # A tool raising must not kill the whole agent run. Hand the error back to
             # the model as a failed tool_result so it can recover or report it.
-            self.logger.exception(
-                "Tool execution failed", extra={"json_fields": {"toolName": tool_name, "error": str(exc)}}
-            )
+            self.logger.exception("Tool execution failed", extra={"toolName": tool_name, "error": str(exc)})
             self.last_timings[tool_call.id] = int((time.monotonic() - start) * 1000)
             return ToolResultBlockParam(
                 type="tool_result",

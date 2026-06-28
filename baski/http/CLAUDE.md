@@ -105,7 +105,7 @@ app.add_exception_handler(Exception, runtime_exception_handler)
 
 ### Logging
 
-Logging is plain stdlib (`baski.server.logger`). Get a logger with `logging.getLogger(__name__)`; attach per-call structured fields via `extra={"json_fields": {...}}` (not `labels=`). Ambient per-request/task context comes from `log_context(...)`/`add_labels(...)` (a contextvar). Each HTTP request is seeded once by the context-seeding middleware (`seed_request_context`, route label + Cloud Trace), so handlers and exception handlers just log — no per-request logger injection. Cloud mode (`configure_logging(cloud=True)`) emits one JSON line per record to stdout for Cloud Run to ingest; local mode is readable.
+Logging is plain stdlib (`baski.server.logger`). Get a logger with `logging.getLogger(__name__)`; attach per-call structured fields via native `extra={...}` (each key becomes a top-level `jsonPayload.<key>`). Ambient per-request/task context comes from `log_context(...)`/`add_labels(...)` (a contextvar). Each HTTP request is seeded once by the context-seeding middleware (`seed_request_context`, route label + Cloud Trace), so handlers and exception handlers just log — no per-request logger injection. Cloud mode (`configure_logging(cloud=True)`) emits one JSON line per record to stdout for Cloud Run to ingest; local mode is readable.
 
 All exception handlers use structured logging:
 - **Downstream HTTP errors**: Include `downstream.status_code` and `downstream.content`

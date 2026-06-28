@@ -37,10 +37,8 @@ class SerpApiClient:
         self._logger.info(
             "SerpApi request",
             extra={
-                "json_fields": {
-                    "serpapi_engine": engine,
-                    "params": {k: v for k, v in params.items() if k != "api_key"},
-                }
+                "serpapi_engine": engine,
+                "params": {k: v for k, v in params.items() if k != "api_key"},
             },
         )
 

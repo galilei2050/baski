@@ -170,7 +170,7 @@ class Agent:
                     retry_count += 1
                     self.logger.warning(
                         "Anthropic API error, retrying",
-                        extra={"json_fields": {"retryCount": retry_count, "maxRetries": max_retries, "error": str(e)}},
+                        extra={"retryCount": retry_count, "maxRetries": max_retries, "error": str(e)},
                     )
                     await asyncio.sleep(2)
                     continue
@@ -191,13 +191,11 @@ class Agent:
             if isinstance(block, ToolUseBlock):
                 tool_calls.append(block)
             elif isinstance(block, ThinkingBlock):
-                self.logger.info("Thinking", extra={"json_fields": {"thinking": block.thinking}})
+                self.logger.info("Thinking", extra={"thinking": block.thinking})
             elif isinstance(block, TextBlock):
                 text_blocks.append(block)
             else:
-                self.logger.warning(
-                    "Unknown content block type", extra={"json_fields": {"blockType": type(block).__name__}}
-                )
+                self.logger.warning("Unknown content block type", extra={"blockType": type(block).__name__})
 
         return ParsedResponse(tool_calls=tool_calls, text_blocks=text_blocks)
 
@@ -228,7 +226,7 @@ class Agent:
         stats.tool_calls += len(tool_calls)
         self.logger.info(
             "Tools execution",
-            extra={"json_fields": {"toolCount": len(tool_calls), "tools": [tc.name for tc in tool_calls]}},
+            extra={"toolCount": len(tool_calls), "tools": [tc.name for tc in tool_calls]},
         )
         for tc in tool_calls:
             await self.on_event(
@@ -255,7 +253,7 @@ class Agent:
         if not text_blocks:
             return None
         message_to_user = "\n".join([b.text for b in text_blocks])
-        self.logger.info("Text received", extra={"json_fields": {"message_to_user": message_to_user}})
+        self.logger.info("Text received", extra={"message_to_user": message_to_user})
         return message_to_user
 
     async def _emit_step_events(self, message: Message, parsed: ParsedResponse) -> str | None:
@@ -324,7 +322,7 @@ class Agent:
         preserved across calls. Step events go to the constructor's `on_event` listener.
         """
         label = self._request_label()
-        self.logger.info("Agent execution started", extra={"json_fields": {"userRequest": label[:100]}})
+        self.logger.info("Agent execution started", extra={"userRequest": label[:100]})
 
         stats = ExecutionStats(model=str(self.params["model"]))
         trace = TraceCollector(
@@ -353,7 +351,7 @@ class Agent:
 
         self.logger.info(
             "Agent execution complete",
-            extra={"json_fields": {"userRequest": label[:100], "traceId": trace.id, **stats.for_logs().model_dump()}},
+            extra={"userRequest": label[:100], "traceId": trace.id, **stats.for_logs().model_dump()},
         )
 
         result = AgentExecuteResult(

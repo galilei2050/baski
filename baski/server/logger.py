@@ -4,11 +4,12 @@ A JSON line per record in cloud mode (Cloud Run ingests stdout into Cloud Loggin
 readable line locally.
 
 Log with the ordinary idiom anywhere — ``logging.getLogger(__name__)``. Attach structured
-fields per call with ``extra={"json_fields": {...}}``, or set ambient context that every log
-in the current request/task carries:
+fields per call with native ``extra={...}`` (each key lands at the top level of the JSON line,
+i.e. Cloud Logging ``jsonPayload.<key>``), or set ambient context that every log in the current
+request/task carries:
 
     with log_context(customer_id="123"):     # auto-reset on exit
-        logging.getLogger(__name__).info("charged")   # -> json_fields: {"customer_id": "123"}
+        logging.getLogger(__name__).info("charged")   # -> field {"customer_id": "123"}
 
 Context lives in a contextvar, so concurrent requests never see each other's labels.
 """
@@ -70,19 +71,21 @@ def seed_request_context(request: Request, *, project_id: str | None = None) -> 
     add_labels(**fields)
 
 
-class _ContextFilter(logging.Filter):
-    """Merge the task's ambient labels under each record's own json_fields (per-call wins)."""
+# Attributes the stdlib sets on every LogRecord; anything else on a record came from extra={...}.
+_RESERVED = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime", "taskName"}
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.json_fields = {**_labels.get(), **getattr(record, "json_fields", {})}
-        return True
+
+def _fields(record: logging.LogRecord) -> dict[str, Any]:  # noqa: ANON002 — arbitrary structured log fields, intentionally polymorphic
+    """The task's ambient labels plus this record's own ``extra={...}`` fields (per-call wins)."""
+    extra = {key: value for key, value in record.__dict__.items() if key not in _RESERVED}
+    return {**_labels.get(), **extra}
 
 
 class _JsonFormatter(logging.Formatter):
-    """One Cloud Logging-shaped JSON line per record: severity + message + structured fields."""
+    """One Cloud Logging JSON line per record: `severity`/trace keys promote, the rest land in jsonPayload."""
 
     def format(self, record: logging.LogRecord) -> str:
-        entry = dict(getattr(record, "json_fields", {}))
+        entry = _fields(record)
         entry["severity"] = record.levelname
         message = record.getMessage()
         if record.exc_info:
@@ -97,7 +100,7 @@ class _PrettyFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         line = super().format(record)
-        fields = getattr(record, "json_fields", None)
+        fields = _fields(record)
         if fields:
             line += "\n" + " " * 17 + json.dumps(fields)  # aligns under "HH:MM:SS LEVEL   "
         return line
@@ -111,7 +114,6 @@ def configure_logging(*, cloud: bool, debug: bool) -> None:
         if cloud
         else _PrettyFormatter(style="{", fmt="{asctime} {levelname:7} {message}", datefmt="%H:%M:%S")
     )
-    handler.addFilter(_ContextFilter())
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)

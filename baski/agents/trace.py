@@ -179,9 +179,7 @@ class TraceCollector:
             elif isinstance(block, ToolUseBlock):
                 turn.tool_calls.append(block)
             else:
-                self._logger.warning(
-                    "Unknown content block type", extra={"json_fields": {"blockType": type(block).__name__}}
-                )
+                self._logger.warning("Unknown content block type", extra={"blockType": type(block).__name__})
 
         _ = api_duration_ms  # recorded at turn level via end_turn timing
 
@@ -283,11 +281,9 @@ class TraceCollector:
             upload_error = str(e)
 
         if upload_error is not None:
-            self._logger.error(
-                "Failed to upload trace", extra={"json_fields": {"traceId": self.id, "error": upload_error}}
-            )
+            self._logger.error("Failed to upload trace", extra={"traceId": self.id, "error": upload_error})
         else:
-            self._logger.info("Trace uploaded", extra={"json_fields": {"traceId": self.id}})
+            self._logger.info("Trace uploaded", extra={"traceId": self.id})
 
     async def _save_to_db(self, stats: ExecutionStats) -> None:
         """Save lightweight trace summary to MongoDB."""
@@ -306,6 +302,6 @@ class TraceCollector:
         try:
             await self._database["traces"].insert_one(doc)
         except PyMongoError:
-            self._logger.exception("Failed to save trace to DB", extra={"json_fields": {"traceId": self.id}})
+            self._logger.exception("Failed to save trace to DB", extra={"traceId": self.id})
             return
-        self._logger.info("Trace saved to DB", extra={"json_fields": {"traceId": self.id}})
+        self._logger.info("Trace saved to DB", extra={"traceId": self.id})

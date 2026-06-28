@@ -133,9 +133,7 @@ class MongoQueryLogger(CommandListener):
         """Log a successful command with duration and result size."""
         start = self._starts.pop(event.request_id, None)
         if start is None:
-            self._logger.warning(
-                "mongo.query missing started event", extra={"json_fields": {"requestId": event.request_id}}
-            )
+            self._logger.warning("mongo.query missing started event", extra={"requestId": event.request_id})
             return
         _, command, command_name = start
         duration_ms = round(event.duration_micros / 1000, 3)
@@ -144,20 +142,18 @@ class MongoQueryLogger(CommandListener):
         # Slow queries are surfaced at WARNING so a single severity filter
         # in Cloud Logging shows everything worth investigating.
         if labels["slow"]:
-            self._logger.warning("mongo.query", extra={"json_fields": labels})
+            self._logger.warning("mongo.query", extra=labels)
         else:
-            self._logger.info("mongo.query", extra={"json_fields": labels})
+            self._logger.info("mongo.query", extra=labels)
 
     def failed(self, event: CommandFailedEvent) -> None:
         """Log a failed command with duration and failure detail."""
         start = self._starts.pop(event.request_id, None)
         if start is None:
-            self._logger.warning(
-                "mongo.query missing started event", extra={"json_fields": {"requestId": event.request_id}}
-            )
+            self._logger.warning("mongo.query missing started event", extra={"requestId": event.request_id})
             return
         _, command, command_name = start
         duration_ms = round(event.duration_micros / 1000, 3)
         labels = _build_labels(command=command, command_name=command_name, duration_ms=duration_ms)
         labels["error"] = str(event.failure)
-        self._logger.warning("mongo.query", extra={"json_fields": labels})
+        self._logger.warning("mongo.query", extra=labels)

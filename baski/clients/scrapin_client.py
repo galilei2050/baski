@@ -36,7 +36,7 @@ class ScrapinClient:
         if "json" in kwargs:
             log_data["body"] = kwargs["json"]
 
-        self._logger.info("Scrapin request", extra={"json_fields": log_data})
+        self._logger.info("Scrapin request", extra=log_data)
 
         response = await self._http_client.request(method=method, url=url, **kwargs)
         if response.status_code == httpx.codes.NOT_FOUND:

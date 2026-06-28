@@ -52,12 +52,10 @@ class SpectrClient:
         self._logger.info(
             "Spectr request",
             extra={
-                "json_fields": {
-                    "spectrEndpoint": endpoint,
-                    "rateLimit": rate_limit,
-                    "creditLimit": credit_limit,
-                    "kwargs": kwargs,
-                }
+                "spectrEndpoint": endpoint,
+                "rateLimit": rate_limit,
+                "creditLimit": credit_limit,
+                "kwargs": kwargs,
             },
         )
 

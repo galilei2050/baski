@@ -79,15 +79,13 @@ async def http_exception_handler(request: Request, exc: HTTPStatusError) -> Resp
     logger.warning(
         "Downstream HTTP error",
         extra={
-            "json_fields": {
-                "downstream": {
-                    "url": str(exc.request.url),
-                    "method": exc.request.method,
-                    "statusCode": exc.response.status_code,
-                    "content": exc.response.content,
-                },
-                "body": await request_body(request),
-            }
+            "downstream": {
+                "url": str(exc.request.url),
+                "method": exc.request.method,
+                "statusCode": exc.response.status_code,
+                "content": exc.response.content,
+            },
+            "body": await request_body(request),
         },
     )
     if config.debug:
@@ -119,7 +117,7 @@ def http_connection_exception_handler(_request: Request, exc: ReadError | Connec
     """Return 502 for downstream connection failures (read or connect errors)."""
     logger.warning(
         "Downstream HTTP connection error",
-        extra={"json_fields": {"exceptionType": type(exc).__name__, "exception": str(exc)}},
+        extra={"exceptionType": type(exc).__name__, "exception": str(exc)},
     )
 
     return JSONResponse(
@@ -139,7 +137,7 @@ async def runtime_exception_handler(request: Request, exc: Exception) -> JSONRes
     logger.error(
         "Runtime exception",
         exc_info=exc,
-        extra={"json_fields": {"body": await request_body(request)}},
+        extra={"body": await request_body(request)},
     )
     return JSONResponse(
         content={"error": {"code": code, "message": f"Exception {type(exc)} during execution"}}, status_code=code
@@ -152,10 +150,8 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
         "Pydantic validation error",
         exc_info=exc,
         extra={
-            "json_fields": {
-                "errors": jsonable_encoder(exc.errors()),
-                "body": await request_body(request),
-            }
+            "errors": jsonable_encoder(exc.errors()),
+            "body": await request_body(request),
         },
     )
 
@@ -169,7 +165,7 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
     """Return 422 for FastAPI request-body validation errors."""
     logger.warning(
         "Validation error occurred",
-        extra={"json_fields": {"body": await request_body(request), "errors": jsonable_encoder(exc.errors())}},
+        extra={"body": await request_body(request), "errors": jsonable_encoder(exc.errors())},
     )
     return JSONResponse(
         status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -182,13 +178,11 @@ async def genai_api_exception_handler(request: Request, exc: GenAIAPIError) -> J
     logger.warning(
         "GenAI API error",
         extra={
-            "json_fields": {
-                "body": await request_body(request),
-                "genaiCode": exc.code,
-                "genaiStatus": exc.status,
-                "genaiMessage": exc.message,
-                "genaiDetails": str(exc.details) if exc.details else None,
-            }
+            "body": await request_body(request),
+            "genaiCode": exc.code,
+            "genaiStatus": exc.status,
+            "genaiMessage": exc.message,
+            "genaiDetails": str(exc.details) if exc.details else None,
         },
     )
 
@@ -206,15 +200,13 @@ async def google_api_exception_handler(request: Request, exc: GoogleAPICallError
         "Google API error",
         exc_info=exc,
         extra={
-            "json_fields": {
-                "body": await request_body(request),
-                "googleApiCode": exc.code,
-                "googleApiMessage": exc.message,
-                "grpcStatusCode": str(exc.grpc_status_code) if exc.grpc_status_code else None,
-                "reason": exc.reason,
-                "details": str(exc.details) if exc.details else None,
-                "errors": str(exc.errors) if exc.errors else None,
-            }
+            "body": await request_body(request),
+            "googleApiCode": exc.code,
+            "googleApiMessage": exc.message,
+            "grpcStatusCode": str(exc.grpc_status_code) if exc.grpc_status_code else None,
+            "reason": exc.reason,
+            "details": str(exc.details) if exc.details else None,
+            "errors": str(exc.errors) if exc.errors else None,
         },
     )
 

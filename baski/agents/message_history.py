@@ -240,10 +240,8 @@ class InMemoryMessageHistory(MessageHistory):
         self.logger.info(
             "Messages deleted by agent",
             extra={
-                "json_fields": {
-                    "turnIds": sorted(ids_to_remove),
-                    "turnsRemoved": removed,
-                }
+                "turnIds": sorted(ids_to_remove),
+                "turnsRemoved": removed,
             },
         )
         return removed
@@ -262,13 +260,11 @@ class InMemoryMessageHistory(MessageHistory):
         self.logger.info(
             "Truncated message history",
             extra={
-                "json_fields": {
-                    "inputTokens": context_tokens,
-                    "maxTokens": self.max_tokens,
-                    "threshold": self.max_tokens * self.truncate_threshold,
-                    "turnsRemoved": initial_count - len(self._turns),
-                    "turnsBefore": initial_count,
-                    "turnsAfter": len(self._turns),
-                }
+                "inputTokens": context_tokens,
+                "maxTokens": self.max_tokens,
+                "threshold": self.max_tokens * self.truncate_threshold,
+                "turnsRemoved": initial_count - len(self._turns),
+                "turnsBefore": initial_count,
+                "turnsAfter": len(self._turns),
             },
         )
