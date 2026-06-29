@@ -5,6 +5,7 @@ from .events import (
     AgentEvent,
     Completed,
     EventType,
+    Judged,
     Listener,
     Message,
     TextDelta,
@@ -15,11 +16,13 @@ from .events import (
     noop,
 )
 from .execute_result import AgentExecuteResult
+from .judge import DEFAULT_JUDGE_MODEL, GeminiJudge, Judge, Verdict
 from .message_history import InMemoryMessageHistory, MessageHistory
 from .tool import Tool
 from .toolset import ToolSet
 
 __all__ = [
+    "DEFAULT_JUDGE_MODEL",
     "Agent",
     "AgentConfig",
     "AgentEvent",
@@ -28,7 +31,10 @@ __all__ = [
     "AgentRefusalError",
     "Completed",
     "EventType",
+    "GeminiJudge",
     "InMemoryMessageHistory",
+    "Judge",
+    "Judged",
     "Listener",
     "Message",
     "MessageHistory",
@@ -39,5 +45,6 @@ __all__ = [
     "ToolSet",
     "ToolStarted",
     "TurnStarted",
+    "Verdict",
     "noop",
 ]

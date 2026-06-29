@@ -12,9 +12,10 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from baski.primitives import datetime
 
-from .events import Completed, Listener, TextDelta, Thinking, ToolFinished, ToolStarted, TurnStarted, noop
+from .events import Completed, Judged, Listener, TextDelta, Thinking, ToolFinished, ToolStarted, TurnStarted, noop
 from .events import Message as MessageEvent
 from .execute_result import AgentExecuteResult
+from .judge import Judge, Verdict, retry_prompt
 from .message_history import EPHEMERAL_CACHE, MessageHistory
 from .pricing import ExecutionStats
 from .toolset import ToolSet
@@ -85,9 +86,11 @@ class AgentConfig(NamedTuple):
     database: AsyncDatabase
     bucket_name: str
     system_prompt: str
+    judge: Judge  # grades answer completeness at the loop's exit and retries until finished
     model: str = DEFAULT_MODEL
     await_trace: bool = False  # block reply on trace persistence (tests/probe read it right after)
     local_traces_dir: str | None = None  # write full traces here instead of GCS (tests/probe); None → GCS
+    judge_max_retries: int = 2  # cap on judge-driven re-runs, so an unsatisfiable check never spins
 
 
 class Agent:
@@ -107,6 +110,8 @@ class Agent:
         self.toolset = config.toolset
         self._await_trace = config.await_trace
         self._local_traces_dir = config.local_traces_dir
+        self._judge = config.judge
+        self._judge_max_retries = config.judge_max_retries
         self.on_event = on_event
         # Not in message_history.turns, so truncate/prune_transcript can't reach it.
         self._pinned: list[MessageParam] = []
@@ -318,6 +323,11 @@ class Agent:
     async def execute(self) -> AgentExecuteResult:
         """Drive the agentic loop over the current pinned context + history until done.
 
+        One loop: a turn with tool calls keeps going; the first turn without tool calls is the
+        candidate answer, which the judge grades for completeness at this exit point. If it falls
+        short (within the retry cap) the verdict's feedback is fed back as a user turn and the same
+        loop redoes the work — the automated version of the owner saying "try again".
+
         The caller sets up the request before calling: pin a task with `add_pinned_text`
         (task mode), or add the message to the injected `message_history` (chat mode, which
         also lets the loop continue a prior conversation). Re-callable — context is
@@ -339,11 +349,19 @@ class Agent:
         )
 
         turn = TurnResult(message_to_user=None, has_tool_calls=False)
+        verdicts: list[Verdict] = []
         try:
             while True:
                 turn = await self._run_turn(stats, trace)
-                if not turn.has_tool_calls:
+                if turn.has_tool_calls:
+                    continue  # model is still working — keep looping
+                verdict = await self._judge.evaluate(label, turn.message_to_user or "")
+                verdicts.append(verdict)
+                await self.on_event(Judged(finished=verdict.finished, missing=verdict.missing, attempt=len(verdicts)))
+                if verdict.finished or len(verdicts) > self._judge_max_retries:
                     break
+                with self.message_history:  # feed the gap back; the loop redoes the work
+                    self.message_history.add_user_text(retry_prompt(verdict))
         except Exception as e:
             trace.finalize(stats, error=str(e))
             raise
@@ -364,6 +382,7 @@ class Agent:
             tool_call_count=stats.tool_calls,
             total_cost=stats.cost,
             context_tokens=stats.last_input_tokens,
+            judge_verdicts=verdicts,
         )
 
         trace.finalize(stats, result)

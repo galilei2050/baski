@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from .judge import Verdict
+
 
 class AgentExecuteResult(BaseModel):
     """Result from Agent.execute() containing response and execution metrics."""
@@ -14,3 +16,7 @@ class AgentExecuteResult(BaseModel):
     tool_call_count: int = Field(..., description="Total number of tool calls across all turns")
     total_cost: float = Field(..., description="Total cost in USD for this execution")
     context_tokens: int = Field(..., description="Input tokens on the last API call — the current context-window size")
+    judge_verdicts: list[Verdict] = Field(
+        default_factory=list,
+        description="Completeness-judge verdicts in order, one per check (empty if no judge); last is final",
+    )
