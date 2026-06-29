@@ -20,6 +20,7 @@ class EventType(StrEnum):
     MESSAGE = "message"
     TOOL_STARTED = "tool_started"
     TOOL_FINISHED = "tool_finished"
+    JUDGED = "judged"
     COMPLETED = "completed"
 
 
@@ -68,6 +69,15 @@ class ToolFinished(BaseModel):
     duration_ms: int
 
 
+class Judged(BaseModel):
+    """The completeness judge graded the answer at the loop's exit (may trigger a retry)."""
+
+    type: EventType = EventType.JUDGED
+    finished: bool
+    missing: list[str]
+    attempt: int
+
+
 class Completed(BaseModel):
     """The agent finished and produced its final answer (or None)."""
 
@@ -75,7 +85,7 @@ class Completed(BaseModel):
     response: str | None
 
 
-AgentEvent = TurnStarted | Thinking | TextDelta | Message | ToolStarted | ToolFinished | Completed
+AgentEvent = TurnStarted | Thinking | TextDelta | Message | ToolStarted | ToolFinished | Judged | Completed
 
 # A listener is any async callable that consumes one event. Compose several by
 # wrapping them in one function; the agent takes a single listener for simplicity.
