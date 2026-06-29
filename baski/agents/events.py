@@ -75,6 +75,7 @@ class Judged(BaseModel):
     type: EventType = EventType.JUDGED
     finished: bool
     missing: list[str]
+    feedback: str  # the verdict as an actionable instruction (what to do next); "" when finished
     attempt: int
 
 

@@ -355,9 +355,20 @@ class Agent:
                 turn = await self._run_turn(stats, trace)
                 if turn.has_tool_calls:
                     continue  # model is still working — keep looping
-                verdict = await self._judge.evaluate(label, turn.message_to_user or "")
+                verdict = await self._judge.evaluate(
+                    transcript=self.message_history.format_for_judge(),
+                    answer=turn.message_to_user or "",
+                    rules=await self._system(),
+                )
                 verdicts.append(verdict)
-                await self.on_event(Judged(finished=verdict.finished, missing=verdict.missing, attempt=len(verdicts)))
+                await self.on_event(
+                    Judged(
+                        finished=verdict.finished,
+                        missing=verdict.missing,
+                        feedback=verdict.feedback,
+                        attempt=len(verdicts),
+                    )
+                )
                 if verdict.finished or len(verdicts) > self._judge_max_retries:
                     break
                 with self.message_history:  # feed the gap back; the loop redoes the work

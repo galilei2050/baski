@@ -1,5 +1,6 @@
 """Conversation history: the Protocol the Agent depends on, plus an in-memory implementation."""
 
+import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -30,6 +31,13 @@ def _block_type(block: object) -> str | None:
     if isinstance(block, BaseModel):
         return getattr(block, "type", None)
     return block.get("type") if isinstance(block, dict) else None
+
+
+def _block_field(block: object, name: str) -> object:
+    """Read a block field whether the block is an SDK model or a plain dict."""
+    if isinstance(block, BaseModel):
+        return getattr(block, name, None)
+    return block.get(name) if isinstance(block, dict) else None
 
 
 def mark_cached(message: MessageParam) -> MessageParam:
@@ -113,6 +121,10 @@ class MessageHistory(Protocol):
 
     def format_for_api(self) -> list[MessageParam]:
         """Render the transcript as the message list for the Anthropic API (cache breakpoint on the last turn)."""
+        ...
+
+    def format_for_judge(self) -> str:
+        """Compact transcript for the completeness judge: user/assistant text + `[tool] name(args)` markers."""
         ...
 
     def context_status(self) -> MessageParam | None:
@@ -222,6 +234,28 @@ class InMemoryMessageHistory(MessageHistory):
         if result:
             result[-1] = mark_cached(result[-1])
         return result
+
+    def format_for_judge(self) -> str:
+        """Compact transcript for the completeness judge: user/assistant text + `[tool] name(args)` markers.
+
+        Tool *results* are omitted on purpose — the judge grades completeness from what was asked, said,
+        and run, not from raw tool output (that bloats the prompt and pulls the judge into fact-checking).
+        """
+        lines: list[str] = []
+        for turn in self._turns:
+            for message in turn.messages:
+                content = message["content"]
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    btype = _block_type(block)
+                    if btype == "text":
+                        lines.append(f"[{message['role']}] {_block_field(block, 'text')}")
+                    elif btype == "tool_use":
+                        args = _block_field(block, "input")
+                        rendered = json.dumps(args, ensure_ascii=False)[:200] if args else ""
+                        lines.append(f"[tool] {_block_field(block, 'name')}({rendered})")
+        return "\n".join(lines)
 
     def context_status(self) -> MessageParam | None:
         """The context-usage footer, rendered by the shared helper from this history's counters."""
