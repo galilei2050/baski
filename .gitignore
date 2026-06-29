@@ -1,6 +1,9 @@
 *.swp
 .directory
 
+# Throwaway scripts and scratch data
+/scratch/
+
 # Debug files
 /response.txt
 /app/response.json
