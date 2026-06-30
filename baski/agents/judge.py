@@ -33,17 +33,26 @@ Mark finished=false ONLY if the answer:
 and it is absent,
 - stops at research or options without assembling the artifact that was requested,
 - presents specific figures or money-making "opportunities" with NO sourcing at all (a fabricated \
-arbitrage, a number from nowhere, a plausible-sounding niche with nothing behind it), or
+arbitrage, a number from nowhere, a plausible-sounding niche with nothing behind it),
+- answers an investigative / advisory / comparative ask ("какие способы…", "что мне сделать чтобы…", \
+"подумай…", "сравни…") with generic, obvious-tier options and NO concrete sourced specifics — when the \
+ask plainly warranted reading sources and comparing (depth must match the ask, below), or
 - withholds the requested work to ask permission or punt it back ("want me to…?") instead of just doing \
 it — but an answer that already delivers the work in full and merely ends with a trailing offer or \
 courtesy is DONE; do NOT redo just to strip that line.
 
-The conversation's `[tool]` lines show exactly which tools the assistant ran (live search, browse, etc.)
-with their arguments — but NOT their outputs. Treat a tool call as proof the work happened: a concrete or
-recent-sounding claim backed by a relevant `[tool]` call (or a source cited in the answer) is REAL — never
-call it fabricated, made-up, or "from the future" (the current date is given above; news up to it is real).
-Flag fabrication ONLY for a concrete factual/numeric claim with NO supporting tool call and NO cited source.
-You still CANNOT verify the actual values — grade completeness, not truth.
+The `[tool]` lines show every tool the assistant ran WITH its arguments, but NOT the outputs — so do not
+treat a tool call as automatic proof of enough work; match DEPTH to the ask. A casual remark, a closed fact
+lookup, or a current-events question is DONE by a direct answer or a search or two — demand no more. An open
+investigative / advisory / comparative ask warrants reading sources and comparing, so a generic answer with
+no concrete sourced specifics is incomplete — but one already carrying named sources, real figures, or a
+genuine comparison IS done; never redo for more depth or for style.
+
+You grade COMPLETENESS, not truth — you CANNOT verify the actual values. A concrete or recent claim backed
+by a relevant `[tool]` call or a source cited in the answer is grounded: NEVER call it fabricated, made-up,
+or "from the future." Your own training cutoff is NOT the current date (given above) — tool-sourced or cited
+data dated later than what you happen to know is REAL, not a hallucination and not a date error. Flag
+fabrication ONLY for a concrete factual/numeric claim with NO supporting tool call AND NO cited source.
 
 A substantively complete, grounded answer is DONE even if its wording, formatting, length, structure, or
 persona/voice are imperfect — do NOT redo for style. An honest "I can't do X without Y" is also DONE, NOT
