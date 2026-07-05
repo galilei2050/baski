@@ -18,7 +18,7 @@ from .execute_result import AgentExecuteResult
 from .judge import Judge, Verdict, retry_prompt
 from .message_history import EPHEMERAL_CACHE, MessageHistory
 from .pricing import ExecutionStats
-from .toolset import ToolSet, register_sub_trace
+from .toolset import ToolSet, register_sub_trace, report_cost
 from .trace import TraceCollector, TraceCollectorConfig
 
 logger = logging.getLogger(__name__)
@@ -241,6 +241,7 @@ class Agent:
             )
 
         tool_results = await self.toolset.execute(tool_calls)
+        stats.cost += sum(self.toolset.last_costs.values())  # tool spend (nested agents, paid APIs) joins the turn
         self.message_history.add_tool_results(tool_results)
         trace.record_tool_results(tool_results, self.toolset.last_timings, self.toolset.last_sub_trace_ids)
 
@@ -379,6 +380,7 @@ class Agent:
             raise
 
         await self.on_event(Completed(response=turn.message_to_user))
+        report_cost(stats.cost)  # if this agent ran as a tool, its total spend joins the caller's turn cost
 
         logger.info(
             "Agent execution complete",

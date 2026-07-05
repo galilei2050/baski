@@ -25,6 +25,18 @@ def register_sub_trace(trace_id: str) -> None:
         sink.append(trace_id)
 
 
+# Cost attributable to the running tool call — a nested Agent reports its own total, a paid tool its
+# API spend. The agent adds these to the turn's cost, so `total_cost` covers tools, not just the LLM.
+_sub_cost_sink: ContextVar[list[float] | None] = ContextVar("sub_cost_sink", default=None)
+
+
+def report_cost(usd: float) -> None:
+    """Attribute a USD cost to the currently-executing tool call (no-op outside one)."""
+    sink = _sub_cost_sink.get()
+    if sink is not None:
+        sink.append(usd)
+
+
 def _format_validation_error(tool_name: str, exc: ValidationError) -> str:
     """Render a pydantic error as a short, per-field message the model can act on."""
     lines = [f"Invalid input for tool '{tool_name}'. Fix these and call it again:"]
@@ -45,6 +57,7 @@ class ToolSet:
         self._tools: dict[str, Tool] = {}
         self.last_timings: dict[str, int] = {}
         self.last_sub_trace_ids: dict[str, list[str]] = {}  # tool_call.id → trace ids of agents it spawned
+        self.last_costs: dict[str, float] = {}  # tool_call.id → USD the tool reported (nested agents, paid APIs)
 
     def __contains__(self, tool_name: str) -> bool:
         """Return True if a tool with the given name is registered."""
@@ -122,6 +135,8 @@ class ToolSet:
         sink: list[str] = []
         self.last_sub_trace_ids[tool_call.id] = sink
         token = _sub_trace_sink.set(sink)  # a nested Agent this tool runs will register into `sink`
+        cost_sink: list[float] = []
+        cost_token = _sub_cost_sink.set(cost_sink)  # the tool (or a nested Agent) reports its cost here
 
         try:
             result = await tool.execute(**kwargs)
@@ -138,6 +153,8 @@ class ToolSet:
             )
         finally:
             _sub_trace_sink.reset(token)
+            _sub_cost_sink.reset(cost_token)
+            self.last_costs[tool_call.id] = sum(cost_sink)
 
         self.last_timings[tool_call.id] = int((time.monotonic() - start) * 1000)
         return ToolResultBlockParam(type="tool_result", tool_use_id=tool_call.id, content=result)
@@ -146,5 +163,6 @@ class ToolSet:
         """Execute tool calls in parallel and return formatted results."""
         self.last_timings = {}
         self.last_sub_trace_ids = {}
+        self.last_costs = {}
         results = await asyncio.gather(*[self._execute_single(tc) for tc in tool_calls])
         return list(results)
