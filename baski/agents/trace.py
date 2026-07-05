@@ -69,6 +69,7 @@ class ToolResultRecord(BaseModel):
     output: str
     is_error: bool
     duration_ms: int
+    sub_trace_ids: list[str] = []  # traces of any agents this tool spawned (sub-agent delegation)
 
 
 class TurnRecord(BaseModel):
@@ -183,7 +184,12 @@ class TraceCollector:
 
         _ = api_duration_ms  # recorded at turn level via end_turn timing
 
-    def record_tool_results(self, tool_results: list[ToolResultBlockParam], timings: dict[str, int]) -> None:
+    def record_tool_results(
+        self,
+        tool_results: list[ToolResultBlockParam],
+        timings: dict[str, int],
+        sub_trace_ids: dict[str, list[str]],
+    ) -> None:
         """Record tool execution results into the current turn."""
         turn = self._turn
         for result in tool_results:
@@ -204,6 +210,7 @@ class TraceCollector:
                     output=content if isinstance(content, str) else str(content),
                     is_error=is_error,
                     duration_ms=timings.get(tool_use_id, 0),
+                    sub_trace_ids=sub_trace_ids.get(tool_use_id, []),
                 )
             )
 

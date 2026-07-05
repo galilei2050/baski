@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from contextvars import ContextVar
 
 from anthropic.types import MessageParam, ToolParam, ToolResultBlockParam, ToolUseBlock
 from pydantic import ValidationError
@@ -10,6 +11,18 @@ from pydantic import ValidationError
 from .tool import Tool
 
 logger = logging.getLogger(__name__)
+
+# Parent→child trace linkage: `_execute_single` sets a per-call sink; a nested Agent registers its
+# trace id into it on start. Per-task ContextVar copy (gather = one task per call) isolates siblings;
+# the set/reset stack nests, so retrieval links into researcher's sink, researcher into main's.
+_sub_trace_sink: ContextVar[list[str] | None] = ContextVar("sub_trace_sink", default=None)
+
+
+def register_sub_trace(trace_id: str) -> None:
+    """A nested Agent records its trace id in the enclosing tool call's sink (no-op at top level)."""
+    sink = _sub_trace_sink.get()
+    if sink is not None:
+        sink.append(trace_id)
 
 
 def _format_validation_error(tool_name: str, exc: ValidationError) -> str:
@@ -31,6 +44,7 @@ class ToolSet:
         """Initialize an empty toolset."""
         self._tools: dict[str, Tool] = {}
         self.last_timings: dict[str, int] = {}
+        self.last_sub_trace_ids: dict[str, list[str]] = {}  # tool_call.id → trace ids of agents it spawned
 
     def __contains__(self, tool_name: str) -> bool:
         """Return True if a tool with the given name is registered."""
@@ -105,6 +119,9 @@ class ToolSet:
             )
 
         start = time.monotonic()
+        sink: list[str] = []
+        self.last_sub_trace_ids[tool_call.id] = sink
+        token = _sub_trace_sink.set(sink)  # a nested Agent this tool runs will register into `sink`
 
         try:
             result = await tool.execute(**kwargs)
@@ -119,6 +136,8 @@ class ToolSet:
                 content=f"Error executing tool {tool_name}: {exc}",
                 is_error=True,
             )
+        finally:
+            _sub_trace_sink.reset(token)
 
         self.last_timings[tool_call.id] = int((time.monotonic() - start) * 1000)
         return ToolResultBlockParam(type="tool_result", tool_use_id=tool_call.id, content=result)
@@ -126,5 +145,6 @@ class ToolSet:
     async def execute(self, tool_calls: list[ToolUseBlock]) -> list[ToolResultBlockParam]:
         """Execute tool calls in parallel and return formatted results."""
         self.last_timings = {}
+        self.last_sub_trace_ids = {}
         results = await asyncio.gather(*[self._execute_single(tc) for tc in tool_calls])
         return list(results)
