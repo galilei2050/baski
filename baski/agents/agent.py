@@ -18,7 +18,7 @@ from .execute_result import AgentExecuteResult
 from .judge import Judge, Verdict, retry_prompt
 from .message_history import EPHEMERAL_CACHE, MessageHistory
 from .pricing import ExecutionStats
-from .toolset import ToolSet
+from .toolset import ToolSet, register_sub_trace
 from .trace import TraceCollector, TraceCollectorConfig
 
 logger = logging.getLogger(__name__)
@@ -242,7 +242,7 @@ class Agent:
 
         tool_results = await self.toolset.execute(tool_calls)
         self.message_history.add_tool_results(tool_results)
-        trace.record_tool_results(tool_results, self.toolset.last_timings)
+        trace.record_tool_results(tool_results, self.toolset.last_timings, self.toolset.last_sub_trace_ids)
 
         name_by_id = {tc.id: tc.name for tc in tool_calls}
         for result in tool_results:
@@ -347,6 +347,7 @@ class Agent:
                 local_traces_dir=self._local_traces_dir,
             )
         )
+        register_sub_trace(trace.id)  # if this agent runs inside a parent tool call, link it there
 
         turn = TurnResult(message_to_user=None, has_tool_calls=False)
         verdicts: list[Verdict] = []
