@@ -3,26 +3,13 @@
 import asyncio
 import logging
 import time
-from contextvars import ContextVar
 
 from anthropic.types import MessageParam, ToolParam, ToolResultBlockParam, ToolUseBlock
 from pydantic import ValidationError
 
-from .tool import Tool
+from .tool import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
-
-# Parent→child trace linkage: `_execute_single` sets a per-call sink; a nested Agent registers its
-# trace id into it on start. Per-task ContextVar copy (gather = one task per call) isolates siblings;
-# the set/reset stack nests, so retrieval links into researcher's sink, researcher into main's.
-_sub_trace_sink: ContextVar[list[str] | None] = ContextVar("sub_trace_sink", default=None)
-
-
-def register_sub_trace(trace_id: str) -> None:
-    """A nested Agent records its trace id in the enclosing tool call's sink (no-op at top level)."""
-    sink = _sub_trace_sink.get()
-    if sink is not None:
-        sink.append(trace_id)
 
 
 def _format_validation_error(tool_name: str, exc: ValidationError) -> str:
@@ -45,6 +32,7 @@ class ToolSet:
         self._tools: dict[str, Tool] = {}
         self.last_timings: dict[str, int] = {}
         self.last_sub_trace_ids: dict[str, list[str]] = {}  # tool_call.id → trace ids of agents it spawned
+        self.last_costs: dict[str, float] = {}  # tool_call.id → USD the tool reported (nested agents, paid APIs)
 
     def __contains__(self, tool_name: str) -> bool:
         """Return True if a tool with the given name is registered."""
@@ -119,12 +107,8 @@ class ToolSet:
             )
 
         start = time.monotonic()
-        sink: list[str] = []
-        self.last_sub_trace_ids[tool_call.id] = sink
-        token = _sub_trace_sink.set(sink)  # a nested Agent this tool runs will register into `sink`
-
         try:
-            result = await tool.execute(**kwargs)
+            raw = await tool.execute(**kwargs)
         except Exception as exc:
             # A tool raising must not kill the whole agent run. Hand the error back to
             # the model as a failed tool_result so it can recover or report it.
@@ -136,15 +120,18 @@ class ToolSet:
                 content=f"Error executing tool {tool_name}: {exc}",
                 is_error=True,
             )
-        finally:
-            _sub_trace_sink.reset(token)
 
         self.last_timings[tool_call.id] = int((time.monotonic() - start) * 1000)
-        return ToolResultBlockParam(type="tool_result", tool_use_id=tool_call.id, content=result)
+        # A tool reports cost + spawned traces by returning a ToolResult; a plain str reports neither.
+        out = raw if isinstance(raw, ToolResult) else ToolResult(content=raw)
+        self.last_costs[tool_call.id] = out.cost
+        self.last_sub_trace_ids[tool_call.id] = out.sub_trace_ids
+        return ToolResultBlockParam(type="tool_result", tool_use_id=tool_call.id, content=out.content)
 
     async def execute(self, tool_calls: list[ToolUseBlock]) -> list[ToolResultBlockParam]:
         """Execute tool calls in parallel and return formatted results."""
         self.last_timings = {}
         self.last_sub_trace_ids = {}
+        self.last_costs = {}
         results = await asyncio.gather(*[self._execute_single(tc) for tc in tool_calls])
         return list(results)

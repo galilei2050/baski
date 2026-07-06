@@ -1,10 +1,26 @@
 """Abstract base class for all agent tools."""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from anthropic.types import MessageParam, ToolParam
 from pydantic import BaseModel
+
+
+@dataclass
+class ToolResult:
+    """A richer `execute` return: the text result plus what the call cost and any agents it spawned.
+
+    A tool with nothing extra to report just returns a `str` (cost 0, no sub-traces). A delegating
+    tool returns its child's spend and trace id here, so the agent folds the cost into the turn and
+    the parent trace can walk into the child. Cost/trace are properties of the RESULT — returned, not
+    threaded through a shared sink or an in/out argument.
+    """
+
+    content: str
+    cost: float = 0.0  # USD this call cost (a nested agent's total, a paid API's charge)
+    sub_trace_ids: list[str] = field(default_factory=list)  # traces of agents this call spawned
 
 
 class Tool(ABC):
@@ -68,5 +84,9 @@ class Tool(ABC):
         return None
 
     @abstractmethod
-    async def execute(self, **kwargs: object) -> str:
-        """Execute the tool with the given keyword arguments and return a string result."""
+    async def execute(self, **kwargs: object) -> "str | ToolResult":
+        """Execute the tool and return its text result.
+
+        Return a plain `str` for a normal tool. Return a `ToolResult` to also report what the call
+        cost and any sub-agent trace ids (e.g. a delegating tool returns its child's cost + trace).
+        """

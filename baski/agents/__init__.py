@@ -18,7 +18,7 @@ from .events import (
 from .execute_result import AgentExecuteResult
 from .judge import DEFAULT_JUDGE_MODEL, GeminiJudge, Judge, Verdict
 from .message_history import InMemoryMessageHistory, MessageHistory
-from .tool import Tool
+from .tool import Tool, ToolResult
 from .toolset import ToolSet
 
 __all__ = [
@@ -42,6 +42,7 @@ __all__ = [
     "Thinking",
     "Tool",
     "ToolFinished",
+    "ToolResult",
     "ToolSet",
     "ToolStarted",
     "TurnStarted",
