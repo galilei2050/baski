@@ -15,7 +15,7 @@ from baski.primitives import datetime
 from .events import Completed, Judged, Listener, TextDelta, Thinking, ToolFinished, ToolStarted, TurnStarted, noop
 from .events import Message as MessageEvent
 from .execute_result import AgentExecuteResult
-from .judge import Judge, Verdict, retry_prompt
+from .judge import Judge, JudgeUnavailableError, Verdict, retry_prompt
 from .message_history import EPHEMERAL_CACHE, MessageHistory
 from .pricing import ExecutionStats
 from .toolset import ToolSet
@@ -321,6 +321,23 @@ class Agent:
                         return str(block.get("text", ""))
         return ""
 
+    async def _grade(self, answer: str) -> Verdict | None:
+        """Grade the candidate answer for completeness, or None if the judge is unavailable.
+
+        Fail open: the judge is a best-effort quality gate, not a hard dependency. A judge outage
+        (e.g. Vertex 429 quota) must not sink an answer the agent already produced — None tells the
+        loop to accept the candidate rather than fail the whole run.
+        """
+        try:
+            return await self._judge.evaluate(
+                transcript=self.message_history.format_for_judge(),
+                answer=answer,
+                rules=await self._system(),
+            )
+        except JudgeUnavailableError as e:
+            logger.warning("Judge unavailable; accepting answer (fail open)", extra={"error": str(e)})
+            return None
+
     async def execute(self) -> AgentExecuteResult:
         """Drive the agentic loop over the current pinned context + history until done.
 
@@ -356,11 +373,9 @@ class Agent:
                 turn = await self._run_turn(stats, trace)
                 if turn.has_tool_calls:
                     continue  # model is still working — keep looping
-                verdict = await self._judge.evaluate(
-                    transcript=self.message_history.format_for_judge(),
-                    answer=turn.message_to_user or "",
-                    rules=await self._system(),
-                )
+                verdict = await self._grade(turn.message_to_user or "")
+                if verdict is None:
+                    break  # judge unavailable — fail open: accept the candidate answer
                 verdicts.append(verdict)
                 await self.on_event(
                     Judged(

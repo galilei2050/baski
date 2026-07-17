@@ -7,9 +7,11 @@ COMPLETENESS of the deliverable, not factual truth (transcript-checkable without
 """
 
 import logging
+from http import HTTPStatus
 from typing import Protocol
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types as ai_types
 from pydantic import BaseModel, Field
 
@@ -18,6 +20,16 @@ from baski.primitives import datetime
 logger = logging.getLogger(__name__)
 
 DEFAULT_JUDGE_MODEL = "gemini-3.5-flash"  # cheap, fast, GA, different family from the Opus executor
+
+
+class JudgeUnavailableError(Exception):
+    """The judge couldn't render a verdict due to a transient outage.
+
+    Quota, 5xx, or network — NOT a fault in the answer. The Agent loop treats this as fail-open:
+    deliver the candidate answer rather than sink the whole run. Genuine judge defects (bad JSON,
+    4xx config errors) do NOT raise this — they surface loudly.
+    """
+
 
 _DEFAULT_INSTRUCTIONS = """\
 You grade whether an assistant's answer is DONE. Be CONSERVATIVE: a redo regenerates the entire answer
@@ -134,11 +146,16 @@ class GeminiJudge(Judge):
             f"<reply_to_grade>\n{answer}\n</reply_to_grade>\n\n"
             "Grade <reply_to_grade> for completeness, read in the context of <conversation>."
         )
-        response = await self._client.aio.models.generate_content(
-            model=self._model,
-            contents=prompt,
-            config=ai_types.GenerateContentConfig(response_mime_type="application/json", response_schema=Verdict),
-        )
+        try:
+            response = await self._client.aio.models.generate_content(
+                model=self._model,
+                contents=prompt,
+                config=ai_types.GenerateContentConfig(response_mime_type="application/json", response_schema=Verdict),
+            )
+        except genai_errors.APIError as e:
+            if e.code == HTTPStatus.TOO_MANY_REQUESTS or isinstance(e, genai_errors.ServerError):  # quota / outage
+                raise JudgeUnavailableError(f"Vertex judge call failed: {e.code} {e.status}") from e
+            raise  # 4xx config/request bug — surface it, don't fail open on a real defect
         if response.text is None:
             raise RuntimeError("Judge model returned no content")
         verdict = Verdict.model_validate_json(response.text)
