@@ -47,6 +47,24 @@ class AgentProviderUnavailableError(RuntimeError):
     """
 
 
+class AgentBillingError(RuntimeError):
+    """The Anthropic account can't be billed — a 400 whose message reports the credit balance is too low.
+
+    A billing problem to fix on our side (top up credits), not a transient outage or a malformed
+    request, so the caller can surface it with a distinct, actionable message instead of a generic error.
+    """
+
+
+def _is_billing_error(e: APIStatusError | APIConnectionError) -> bool:
+    """A 400 reporting the credit balance is too low — a billing issue to fix (top up), not an outage.
+
+    Anthropic has no dedicated status code for it, so match the message.
+    """
+    return (
+        isinstance(e, APIStatusError) and e.status_code == HTTPStatus.BAD_REQUEST and "credit balance" in str(e).lower()
+    )
+
+
 def _is_retriable(e: APIStatusError | APIConnectionError) -> bool:
     """A transient provider failure worth retrying — a connection blip or a 5xx/529 (overloaded) status.
 
@@ -162,7 +180,8 @@ class Agent:
         Raises AgentRefusalError on a `refusal` stop_reason — caught here, before the message
         reaches history, so the refused content never gets fed back in. A provider outage
         (5xx/529 or a connection failure) becomes AgentProviderUnavailableError once the retry
-        is exhausted; a 4xx (our own bug) re-raises as-is.
+        is exhausted; a 400 reporting a too-low credit balance becomes AgentBillingError; any other
+        4xx (our own bug) re-raises as-is.
         """
         max_retries = 1
         retry_count = 0
@@ -171,6 +190,8 @@ class Agent:
             try:
                 message = await self._stream_message(messages)
             except (APIStatusError, APIConnectionError) as e:
+                if _is_billing_error(e):
+                    raise AgentBillingError("Anthropic credit balance is too low") from e
                 if not _is_retriable(e):
                     raise
                 if retry_count < max_retries:
