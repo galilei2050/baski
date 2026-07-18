@@ -1,6 +1,6 @@
 """Agent framework for LLM-powered tool-use conversations."""
 
-from .agent import Agent, AgentConfig, AgentProviderUnavailableError, AgentRefusalError
+from .agent import Agent, AgentBillingError, AgentConfig, AgentProviderUnavailableError, AgentRefusalError
 from .events import (
     AgentEvent,
     Completed,
@@ -24,6 +24,7 @@ from .toolset import ToolSet
 __all__ = [
     "DEFAULT_JUDGE_MODEL",
     "Agent",
+    "AgentBillingError",
     "AgentConfig",
     "AgentEvent",
     "AgentExecuteResult",
