@@ -109,6 +109,11 @@ class AgentConfig(NamedTuple):
     await_trace: bool = False  # block reply on trace persistence (tests/probe read it right after)
     local_traces_dir: str | None = None  # write full traces here instead of GCS (tests/probe); None → GCS
     judge_max_retries: int = 2  # cap on judge-driven re-runs, so an unsatisfiable check never spins
+    # Hard ceiling on the agentic loop: at most this many API turns. The agent is told its turn budget
+    # every turn so it paces itself, and the final allowed turn runs with tools disabled so it must
+    # synthesize an answer from what it has instead of running an investigation ever deeper. Generous by
+    # default (a safety net for the main agent); a sub-agent passes a tighter value to keep research shallow.
+    max_turns: int = 40
 
 
 class Agent:
@@ -130,6 +135,7 @@ class Agent:
         self._local_traces_dir = config.local_traces_dir
         self._judge = config.judge
         self._judge_max_retries = config.judge_max_retries
+        self._max_turns = config.max_turns
         self.on_event = on_event
         # Not in message_history.turns, so truncate/prune_transcript can't reach it.
         self._pinned: list[MessageParam] = []
@@ -164,17 +170,22 @@ class Agent:
         """Assemble the system prompt fresh — tool contributions (e.g. owner preferences) can change per turn."""
         return f"{self._system_prompt}\n\n{await self.toolset.system_prompt()}\n\n{AGENT_LOOP_GUIDANCE}"
 
-    async def _stream_message(self, messages: list[MessageParam]) -> Message:
-        """Stream one response, emitting each text delta to the listener; return the assembled message."""
+    async def _stream_message(self, messages: list[MessageParam], *, disable_tools: bool = False) -> Message:
+        """Stream one response, emitting each text delta to the listener; return the assembled message.
+
+        `disable_tools` forces `tool_choice=none` for this one call (the loop's final turn) so the model
+        must answer from what it has — a per-call override that never mutates the shared, re-used params.
+        """
+        params = self.params | {"tool_choice": {"type": "none"}} if disable_tools else self.params
         async with self.anthropic_client.messages.stream(
             messages=messages,
-            **self.params,  # type: ignore[arg-type]  # params is a dynamic dict merged with caller overrides
+            **params,  # type: ignore[arg-type]  # params is a dynamic dict merged with caller overrides
         ) as stream:
             async for text in stream.text_stream:
                 await self.on_event(TextDelta(text=text))
             return await stream.get_final_message()
 
-    async def _call_api(self, messages: list[MessageParam]) -> Message:
+    async def _call_api(self, messages: list[MessageParam], *, disable_tools: bool = False) -> Message:
         """Streaming API call with one retry on a transient provider error (2s backoff).
 
         Raises AgentRefusalError on a `refusal` stop_reason — caught here, before the message
@@ -188,7 +199,7 @@ class Agent:
 
         while retry_count <= max_retries:
             try:
-                message = await self._stream_message(messages)
+                message = await self._stream_message(messages, disable_tools=disable_tools)
             except (APIStatusError, APIConnectionError) as e:
                 if _is_billing_error(e):
                     raise AgentBillingError("Anthropic credit balance is too low") from e
@@ -227,22 +238,45 @@ class Agent:
 
         return ParsedResponse(tool_calls=tool_calls, text_blocks=text_blocks)
 
-    async def _build_messages(self) -> list[MessageParam]:
-        """Build the full message list for an API call: pinned context, then the history."""
+    def _turn_budget_message(self, turn_number: int, *, force_answer: bool) -> MessageParam:
+        """The volatile per-turn budget line, so the agent knows how much loop it has left and paces itself.
+
+        On the final turn (`force_answer`, tools disabled) it says answer now; otherwise it counts down.
+        """
+        if force_answer:
+            text = (
+                f"[Turn {turn_number}/{self._max_turns} — final turn, tools are OFF. "
+                "Give your complete final answer NOW from what you already have.]"
+            )
+        else:
+            left = self._max_turns - turn_number
+            text = (
+                f"[Turn {turn_number}/{self._max_turns} — {left} turn(s) left before you must give your final "
+                "answer. Spend tool calls deliberately and synthesize in time; don't research deeper than needed.]"
+            )
+        return MessageParam(role="user", content=[TextBlockParam(type="text", text=text)])
+
+    async def _build_messages(self, turn_number: int, *, force_answer: bool) -> list[MessageParam]:
+        """Build the full message list for an API call: pinned context, then the history.
+
+        `turn_number`/`force_answer` drive the volatile turn-budget line, so the agent sees how much of
+        its loop it has spent and when it must deliver a final answer.
+        """
         now = datetime.now()
         time_message = MessageParam(
             role="user",
             content=[TextBlockParam(type="text", text=f"Current time: {now.strftime('%A, %B %d, %Y %I:%M %p %Z')}")],
         )
         # Stable prefix (pinned + history, cache breakpoint on the last turn) first; volatile blocks
-        # after it so they don't invalidate the cache: context footer, per-turn user_message()
-        # injections, then time (changes every minute).
+        # after it so they don't invalidate the cache: context footer, turn budget, per-turn
+        # user_message() injections, then time (changes every minute).
         history = self.message_history.format_for_api()
         status = self.message_history.context_status()
         return [
             *self._pinned,
             *history,
             *([status] if status else []),
+            self._turn_budget_message(turn_number, force_answer=force_answer),
             *await self.toolset.user_messages(),
             time_message,
         ]
@@ -300,14 +334,20 @@ class Agent:
         return text
 
     async def _run_turn(self, stats: ExecutionStats, trace: TraceCollector) -> TurnResult:
-        """Run a single agentic turn: build messages, call API, parse response, execute tools."""
-        messages = await self._build_messages()
+        """Run a single agentic turn: build messages, call API, parse response, execute tools.
+
+        The final turn of the budget (`force_answer`) runs with tools disabled, so a runaway
+        investigation always terminates in a synthesized answer instead of yet more tool calls.
+        """
+        turn_number = stats.turn_count + 1  # turn_count counts COMPLETED turns; this is the one about to run
+        force_answer = turn_number >= self._max_turns
+        messages = await self._build_messages(turn_number, force_answer=force_answer)
         trace.start_turn(messages)
 
         start = time.monotonic()
         # Reassembled each turn — tool guidance can be live.
         self.params["system"] = [TextBlockParam(type="text", text=await self._system(), cache_control=EPHEMERAL_CACHE)]
-        message = await self._call_api(messages)
+        message = await self._call_api(messages, disable_tools=force_answer)
         api_duration_ms = int((time.monotonic() - start) * 1000)
 
         stats.collect(message.usage)
