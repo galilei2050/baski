@@ -114,9 +114,19 @@ class TelegramServer(AsyncServer):
 
         @asynccontextmanager
         async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+            # Declare allowed_updates from the registered handlers. Telegram delivers ONLY the update
+            # types listed on the webhook, and omitting the field silently keeps whatever was set before
+            # — so a bot that adds e.g. a callback_query handler would never receive its taps until the
+            # webhook is re-set. Derive it from the dispatcher and re-apply on any drift (or url change).
             info = await self.bot.get_webhook_info()
-            if info.url != webhook_url:
-                await retry(self.bot.set_webhook, exceptions=(TelegramAPIError,), url=webhook_url)
+            allowed = self.dp.resolve_used_update_types()
+            if info.url != webhook_url or set(info.allowed_updates or []) != set(allowed):
+                await retry(
+                    self.bot.set_webhook,
+                    exceptions=(TelegramAPIError,),
+                    url=webhook_url,
+                    allowed_updates=allowed,
+                )
             # feed_webhook_update never fires the dispatcher startup/shutdown events that
             # start_polling emits, so router on_startup hooks (client init) must be driven here.
             await self.dp.emit_startup(bot=self.bot)
