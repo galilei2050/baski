@@ -1,7 +1,14 @@
-"""anon-lint: ban anonymous tuple/dict in function/class type annotations.
+"""anon-lint: AST rules for smells ruff has no check for.
+
+- ANON001/ANON002 — ban anonymous tuple/dict in function/class type annotations.
+- ANON003 — ban a long-lived dependency (client, database, bot, store) in a free function's
+  parameters: it is a method missing its class, and behaviour with no home object is behaviour the
+  next reader writes a second copy of. Which type names count is per-project, so the list is read
+  from `[tool.anon_lint]` in the nearest `pyproject.toml`; the built-in defaults below cover the
+  third-party clients every consumer of this library already holds.
 
 Run as:
-    python -m anon_lint <files_or_dirs...> [--recursive]
+    python -m baski.lint <files_or_dirs...> [--recursive]
 
 Tests live in tests/test_anon_lint.py and run under `uv run pytest`.
 """
@@ -12,7 +19,9 @@ import argparse
 import ast
 import re
 import sys
+import tomllib
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,13 +32,62 @@ DICT_LIKE = {"dict", "Dict", "Mapping", "MutableMapping"}
 TUPLE_LIKE = {"tuple", "Tuple"}
 ANY_NAMES = {"Any"}
 
+# ANON003 defaults: third-party clients any consumer of this library may hold. A project's OWN
+# collaborators are not guessable from here — it adds them under `[tool.anon_lint]` (see `_config`).
+# Deliberately absent: a deps/container object. Passing one is the whole point of having it.
+DEPENDENCY_TYPES = {
+    "AsyncAnthropic",
+    "AsyncClient",  # httpx
+    "AsyncCollection",
+    "AsyncDatabase",
+    "AsyncElevenLabs",
+    "Bot",
+    "PlaywrightClient",
+    "Scheduler",
+    "SerpApiClient",
+}
+# Naming conventions that mark a collaborator without having to enumerate every one.
+DEPENDENCY_SUFFIXES = ("Store", "Log", "Registry")
+
 # A tuple annotation needs at least this many element types before we flag it
 # as anonymous (single-element tuples are usually `tuple[X]` containers).
 _TUPLE_MIN_FLAG_ELEMENTS = 2
 # A dict annotation must have exactly key + value to be a candidate.
 _DICT_SLICE_ELEMENTS = 2
 
-NOQA_RE = re.compile(r"#\s*noqa\s*:\s*([A-Za-z0-9, ]+)")
+# Codes only — the reason text that follows must NOT be swallowed into the last code, or
+# `# noqa: ANON003 wraps one library call` suppresses nothing while looking like it does.
+NOQA_RE = re.compile(r"#\s*noqa\s*:\s*([A-Za-z]+[0-9]+(?:\s*,\s*[A-Za-z]+[0-9]+)*)")
+
+
+@dataclass(frozen=True)
+class Config:
+    """Which type names ANON003 treats as a long-lived dependency, for one project."""
+
+    dependency_types: frozenset[str]
+    dependency_suffixes: tuple[str, ...]
+
+
+DEFAULT_CONFIG = Config(frozenset(DEPENDENCY_TYPES), DEPENDENCY_SUFFIXES)
+
+
+@cache
+def _config(start: Path) -> Config:
+    """Read `[tool.anon_lint]` from the nearest `pyproject.toml` at or above `start`.
+
+    Walking up rather than taking a flag: the linter is invoked from a project's own Makefile, so
+    the project it is linting is the one it sits inside. `extend_dependency_types` adds to the
+    built-in defaults; `dependency_types` replaces them outright.
+    """
+    for directory in (start, *start.parents):
+        manifest = directory / "pyproject.toml"
+        if not manifest.is_file():
+            continue
+        table = tomllib.loads(manifest.read_text(encoding="utf-8")).get("tool", {}).get("anon_lint", {})
+        types = set(table.get("dependency_types", DEPENDENCY_TYPES)) | set(table.get("extend_dependency_types", []))
+        suffixes = tuple(table.get("dependency_suffixes", DEPENDENCY_SUFFIXES))
+        return Config(frozenset(types), suffixes)
+    return DEFAULT_CONFIG
 
 
 @dataclass(frozen=True)
@@ -86,15 +144,74 @@ def _is_typealias(annotation: ast.expr | None) -> bool:
     return annotation is not None and _name_of(annotation) == "TypeAlias"
 
 
+def _annotation_names(annotation: ast.expr | None) -> Iterator[str]:
+    """Every type name an annotation could resolve to.
+
+    Unwraps each spelling the same parameter takes: `X`, `X[...]`, `pkg.X`, a quoted `"X"` under
+    TYPE_CHECKING, and `X | None` / `Optional[X]` — otherwise appending ` | None` is a one-token way
+    to silence ANON003 while changing nothing about the design it catches.
+    """
+    if annotation is None:
+        return
+    if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+        try:
+            annotation = ast.parse(annotation.value, mode="eval").body
+        except SyntaxError:
+            return
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        yield from _annotation_names(annotation.left)
+        yield from _annotation_names(annotation.right)
+        return
+    if isinstance(annotation, ast.Subscript) and _subscript_base(annotation) == "Optional":
+        yield from _annotation_names(annotation.slice)
+        return
+    name = _subscript_base(annotation) or _name_of(annotation)
+    if name is not None:
+        yield name
+
+
+def _dependency_name(annotation: ast.expr | None, config: Config) -> str | None:
+    """The dependency type this annotation names, or None if it names none."""
+    return next(
+        (
+            n
+            for n in _annotation_names(annotation)
+            if n in config.dependency_types or n.endswith(config.dependency_suffixes)
+        ),
+        None,
+    )
+
+
 def _subscript_base(node: ast.expr) -> str | None:
     return _name_of(node.value) if isinstance(node, ast.Subscript) else None
 
 
 class _Checker:
-    def __init__(self, source_lines: list[str], path: Path) -> None:
+    def __init__(self, source_lines: list[str], path: Path, config: Config = DEFAULT_CONFIG) -> None:
         self.source_lines = source_lines
         self.path = path
+        self.config = config
         self.findings: list[Finding] = []
+
+    def check_free_function_deps(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        """Flag a module-level function that takes a long-lived collaborator as a parameter."""
+        args = fn.args
+        for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs]:
+            dependency = _dependency_name(arg.annotation, self.config)
+            if dependency is None:
+                continue
+            if self._suppressed(fn.lineno, "ANON003"):
+                return
+            self.findings.append(
+                Finding(
+                    self.path,
+                    fn.lineno,
+                    fn.col_offset,
+                    "ANON003",
+                    f"{fn.name}({arg.arg}: {dependency}) — bind it in a class, don't pass it per call",
+                )
+            )
+            return  # one finding per function; the fix is the same whichever parameter tripped it
 
     def _suppressed(self, line: int, code: str) -> bool:
         if line < 1 or line > len(self.source_lines):
@@ -179,13 +296,21 @@ def _check_function(fn: ast.FunctionDef | ast.AsyncFunctionDef, checker: _Checke
     checker.check_annotation(fn.returns)
 
 
-def lint_source(source: str, path: Path) -> list[Finding]:
+def _check_module_level(tree: ast.Module, checker: _Checker) -> None:
+    """ANON003 pass. Module-level functions only — a method is already bound to its collaborators."""
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            checker.check_free_function_deps(node)
+
+
+def lint_source(source: str, path: Path, config: Config = DEFAULT_CONFIG) -> list[Finding]:
     """Run the checker on a single source string; return all findings (may be empty)."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
         return []
-    checker = _Checker(source.splitlines(), path)
+    checker = _Checker(source.splitlines(), path, config)
+    _check_module_level(tree, checker)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             _check_function(node, checker)
@@ -198,12 +323,16 @@ def lint_source(source: str, path: Path) -> list[Finding]:
 
 
 def lint_file(path: Path) -> list[Finding]:
-    """Read a file from disk and lint it; silently skips unreadable paths."""
+    """Read a file from disk and lint it; silently skips unreadable paths.
+
+    The ANON003 config comes from the file's own project, so linting a path outside this repo still
+    uses that project's dependency list rather than this one's.
+    """
     try:
         source = path.read_text(encoding="utf-8")
     except OSError:
         return []
-    return lint_source(source, path)
+    return lint_source(source, path, _config(path.resolve().parent))
 
 
 def iter_files(targets: Iterable[Path], *, recursive: bool) -> Iterator[Path]:
