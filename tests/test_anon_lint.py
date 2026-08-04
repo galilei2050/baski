@@ -8,12 +8,14 @@ the exit code, which is the only thing the build actually reads.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
 import pytest
 
-from baski.lint import Config, lint_source, main
+from baski_lint import Config, lint_source, main
 
 _FIRES = [
     ("def f() -> tuple[str, int]: ...", {"ANON001"}),
@@ -120,10 +122,23 @@ def test_a_method_is_not_flagged_because_it_is_already_bound() -> None:
 
 def test_making_the_dependency_optional_does_not_silence_it() -> None:
     """Otherwise ` | None` is a one-token way to shut the rule up without changing the design — and
-    an optional dependency is a worse smell, not an exemption."""
+    an optional dependency is a worse smell, not an exemption.
+
+    All four spellings, not just the fashionable one: unwrapping some and not others leaves the
+    others as the escape hatch, which is the same hole with a longer name.
+    """
     assert _anon003("def a(store: MemoryStore | None) -> None: ...") == ["ANON003"]
     assert _anon003("def b(store: Optional[MemoryStore]) -> None: ...") == ["ANON003"]
     assert _anon003('def c(store: "MemoryStore | None") -> None: ...') == ["ANON003"]
+    assert _anon003("def d(store: Union[MemoryStore, None]) -> None: ...") == ["ANON003"]
+    assert _anon003("def e(store: Annotated[MemoryStore, 'injected']) -> None: ...") == ["ANON003"]
+
+
+def test_a_dependency_arriving_as_varargs_counts() -> None:
+    """A collaborator reaches a function the same way through `*args` / `**kwargs`, and ANON001/002
+    in this same file already check both — skipping them here would be an inconsistency, silently."""
+    assert _anon003("def a(*stores: AsyncDatabase) -> None: ...") == ["ANON003"]
+    assert _anon003("def b(**stores: MemoryStore) -> None: ...") == ["ANON003"]
 
 
 def test_generic_and_quoted_spellings_count() -> None:
@@ -220,3 +235,30 @@ def test_setting_the_list_outright_replaces_the_defaults(tmp_path: Path) -> None
     module = _project(tmp_path, 'dependency_types = ["Widget"]', "def f(db: AsyncDatabase) -> None: ...\n")
 
     assert main([str(module)]) == 0
+
+
+def test_a_malformed_config_exits_differently_from_a_finding(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A build reads the exit code and nothing else. Reporting "your config is broken" as the same 1
+    as "your code has a violation" sends the reader hunting the wrong file."""
+    (tmp_path / "pyproject.toml").write_text("this is not = toml [[[\n", encoding="utf-8")
+    module = tmp_path / "m.py"
+    module.write_text("def f(text: str) -> str: ...\n", encoding="utf-8")
+
+    assert main([str(module)]) == 2
+    assert "unreadable" in capsys.readouterr().err
+
+
+def test_the_linter_does_not_import_the_library_it_ships_with() -> None:
+    """It is a build-time tool. While it lived at `baski.lint`, importing it ran `baski/__init__`,
+    which pulls fastapi, pymongo and google-cloud: 1702 modules and ~1s on every run, against 372us
+    for the checker itself — and a hard failure wherever those runtime deps are absent, with an exit
+    code a build cannot tell apart from a real finding. A subprocess is the only honest check: this
+    test module has already imported plenty by the time it runs.
+    """
+    probe = "import baski_lint, sys; print('baski' in sys.modules)"
+
+    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
+
+    assert result.stdout.strip() == "False", "importing the linter dragged in the runtime library"
