@@ -8,7 +8,7 @@
   third-party clients every consumer of this library already holds.
 
 Run as:
-    python -m baski.lint <files_or_dirs...> [--recursive]
+    python -m baski_lint <files_or_dirs...> [--recursive]
 
 Tests live in tests/test_anon_lint.py and run under `uv run pytest`.
 """
@@ -48,6 +48,9 @@ DEPENDENCY_TYPES = {
 }
 # Naming conventions that mark a collaborator without having to enumerate every one.
 DEPENDENCY_SUFFIXES = ("Store", "Log", "Registry")
+# Subscripts that wrap a type without changing what the parameter holds — a dependency inside one is
+# still a dependency, so ANON003 looks through them rather than reading the wrapper's own name.
+_TRANSPARENT_WRAPPERS = {"Optional", "Union", "Annotated"}
 
 # A tuple annotation needs at least this many element types before we flag it
 # as anonymous (single-element tuples are usually `tuple[X]` containers).
@@ -148,8 +151,9 @@ def _annotation_names(annotation: ast.expr | None) -> Iterator[str]:
     """Every type name an annotation could resolve to.
 
     Unwraps each spelling the same parameter takes: `X`, `X[...]`, `pkg.X`, a quoted `"X"` under
-    TYPE_CHECKING, and `X | None` / `Optional[X]` — otherwise appending ` | None` is a one-token way
-    to silence ANON003 while changing nothing about the design it catches.
+    TYPE_CHECKING, and every wrapper that leaves the dependency in place — `X | None`, `Optional[X]`,
+    `Union[X, None]`, `Annotated[X, ...]`. Unwrapping only some of them would leave the others as a
+    one-token way to silence ANON003 without changing anything about the design it catches.
     """
     if annotation is None:
         return
@@ -162,8 +166,9 @@ def _annotation_names(annotation: ast.expr | None) -> Iterator[str]:
         yield from _annotation_names(annotation.left)
         yield from _annotation_names(annotation.right)
         return
-    if isinstance(annotation, ast.Subscript) and _subscript_base(annotation) == "Optional":
-        yield from _annotation_names(annotation.slice)
+    if isinstance(annotation, ast.Subscript) and _subscript_base(annotation) in _TRANSPARENT_WRAPPERS:
+        for element in _slice_elts(annotation.slice):
+            yield from _annotation_names(element)
         return
     name = _subscript_base(annotation) or _name_of(annotation)
     if name is not None:
@@ -196,7 +201,11 @@ class _Checker:
     def check_free_function_deps(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         """Flag a module-level function that takes a long-lived collaborator as a parameter."""
         args = fn.args
-        for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs]:
+        # `*args` / `**kwargs` included: a collaborator arrives the same way through either, and
+        # ANON001/ANON002 already check both, so skipping them here would be an inconsistency.
+        for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg):
+            if arg is None:
+                continue
             dependency = _dependency_name(arg.annotation, self.config)
             if dependency is None:
                 continue
@@ -351,15 +360,23 @@ def format_finding(f: Finding) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point; returns 0 when no findings, 1 otherwise."""
+    """CLI entry point: 0 clean, 1 findings, 2 the linter could not run.
+
+    The three codes are distinct because a build reads nothing else. Collapsing "your config is
+    malformed" into the same 1 as "your code has a violation" sends someone hunting the wrong file.
+    """
     parser = argparse.ArgumentParser(prog="anon-lint")
     parser.add_argument("paths", nargs="+", type=Path)
     parser.add_argument("--recursive", "-r", action="store_true")
     args = parser.parse_args(argv)
 
     findings: list[Finding] = []
-    for f in iter_files(args.paths, recursive=args.recursive):
-        findings.extend(lint_file(f))
+    try:
+        for f in iter_files(args.paths, recursive=args.recursive):
+            findings.extend(lint_file(f))
+    except tomllib.TOMLDecodeError as exc:
+        sys.stderr.write(f"anon-lint: unreadable [tool.anon_lint] config — {exc}\n")
+        return 2
     for fnd in findings:
         sys.stdout.write(format_finding(fnd) + "\n")
     return 1 if findings else 0

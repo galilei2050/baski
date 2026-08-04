@@ -7,19 +7,19 @@ setup:
 
 .PHONY: lint
 lint:
-	uv run ruff format --check baski/
-	uv run ruff check baski/
-	uv run python -m baski.lint --recursive baski/
+	uv run ruff format --check baski/ baski_lint/
+	uv run ruff check baski/ baski_lint/
+	uv run python -m baski_lint --recursive baski/ baski_lint/
 
 .PHONY: lint-fix
 lint-fix:
-	uv run ruff format baski/
-	uv run ruff check baski/ --fix
-	uv run python -m baski.lint --recursive baski/
+	uv run ruff format baski/ baski_lint/
+	uv run ruff check baski/ baski_lint/ --fix
+	uv run python -m baski_lint --recursive baski/ baski_lint/
 
 .PHONY: typecheck
 typecheck:
-	uv run mypy baski/
+	uv run mypy baski/ baski_lint/
 
 .PHONY: test
 test:

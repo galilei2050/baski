@@ -56,7 +56,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["baski"]
+packages = ["baski", "baski_lint"]
 
 [tool.ruff]
 line-length = 120
