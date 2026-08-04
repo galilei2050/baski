@@ -62,12 +62,20 @@ class Tool(ABC):
             input_schema=self.input_schema,
         )
 
+    #: Set True when `system_prompt()` returns content that CHANGES between turns — a live store
+    #: read, a growing scratchpad. Such content is delivered after the cached prefix instead of
+    #: inside the system prompt: the render order is tools → system → messages, so editing the
+    #: system block invalidates every cached message behind it. Measured on one consumer: a single
+    #: core-memory edit mid-run threw away ~6.7k cached tokens and re-wrote them at the write rate.
+    live_system_prompt: ClassVar[bool] = False
+
     async def system_prompt(self) -> str:
         """Extra instructions this tool adds to the agent system prompt, or "" for none.
 
         Async and re-read every turn (symmetric with `user_message`), so a tool whose guidance
         depends on live state — e.g. owner preferences loaded from a store — can return current
-        content each turn rather than a value frozen at build time.
+        content each turn rather than a value frozen at build time. A tool that actually uses that
+        freedom must also set `live_system_prompt`, or it pays for the whole conversation's cache.
         """
         return ""
 

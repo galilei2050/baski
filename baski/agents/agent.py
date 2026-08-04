@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-4-8"
 
+# Models that accept a `system`-role message inside `messages[]`. It is the operator channel for
+# context that arrives mid-conversation, and unlike editing the top-level system prompt it leaves
+# the cached history intact. Sonnet 5 is deliberately absent — it rejects the role.
+MID_CONVERSATION_SYSTEM_MODELS = frozenset({"claude-opus-5", "claude-opus-4-8", "claude-fable-5", "claude-mythos-5"})
+
 AGENT_LOOP_GUIDANCE = (
     "Always use the most appropriate tool. Use parallel tool calls when they are independent\n"
     "Provide brief explanation of your reasoning for when you use tools and what are next steps."
@@ -167,8 +172,26 @@ class Agent:
         self.add_pinned(MessageParam(role="user", content=[TextBlockParam(type="text", text=text)]))
 
     async def _system(self) -> str:
-        """Assemble the system prompt fresh — tool contributions (e.g. owner preferences) can change per turn."""
+        """Assemble the system prompt from the parts that stay byte-identical across turns.
+
+        Anything a tool rewrites while the agent works is excluded here and delivered after the
+        cached prefix instead (`_live_context`) — a system block that changes invalidates every
+        cached message behind it.
+        """
         return f"{self._system_prompt}\n\n{await self.toolset.system_prompt()}\n\n{AGENT_LOOP_GUIDANCE}"
+
+    async def _live_context(self) -> MessageParam | None:
+        """The tools' per-turn changing content, as a trailing message rather than a system edit.
+
+        A `system`-role message is the operator channel and keeps the cached history intact, but only
+        some models accept one mid-conversation; everywhere else the content falls back to a user
+        block, which caches identically and differs only in authority.
+        """
+        live = await self.toolset.live_system_prompt()
+        if not live:
+            return None
+        role = "system" if str(self.params["model"]) in MID_CONVERSATION_SYSTEM_MODELS else "user"
+        return MessageParam(role=role, content=[TextBlockParam(type="text", text=live)])  # type: ignore[typeddict-item]  # role is a Literal union the API accepts
 
     async def _stream_message(self, messages: list[MessageParam], *, disable_tools: bool = False) -> Message:
         """Stream one response, emitting each text delta to the listener; return the assembled message.
@@ -279,6 +302,9 @@ class Agent:
             self._turn_budget_message(turn_number, force_answer=force_answer),
             *await self.toolset.user_messages(),
             time_message,
+            # Last, and after a user message: a mid-conversation system message must not open the
+            # list and must be the final entry or be followed by an assistant turn.
+            *([live] if (live := await self._live_context()) else []),
         ]
 
     async def _execute_tools(

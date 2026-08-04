@@ -51,10 +51,10 @@ class ToolSet:
         self._tools.pop(tool_name, None)
 
     async def system_prompt(self) -> str:
-        """The tool roster plus each tool's own prompt contribution, for the system prompt.
+        """The tool roster plus the prompt contributions that are STABLE across turns.
 
-        Async and aggregated every turn (like `user_messages`), so tools whose guidance is live
-        (e.g. owner preferences from a store) contribute fresh content each turn.
+        Aggregated every turn (like `user_messages`) so a tool can still compute its text, but one
+        that flags `live_system_prompt` is excluded here and delivered by `live_system_prompt()`.
         """
         if not self._tools:
             return "No tools available"
@@ -64,8 +64,22 @@ class ToolSet:
             roster.append(f"{i}. {tool.one_line} ({tool.name})")
 
         sections = ["\n".join(roster)]
-        sections.extend([c for tool in self._tools.values() if (c := await tool.system_prompt())])
+        sections.extend(
+            [c for tool in self._tools.values() if not tool.live_system_prompt and (c := await tool.system_prompt())]
+        )
         return "\n\n".join(sections)
+
+    async def live_system_prompt(self) -> str:
+        """The contributions that CHANGE between turns, kept out of the cached system block.
+
+        Render order is tools → system → messages, so a system prompt differing by one byte
+        invalidates every cached message behind it. Content a tool rewrites as the agent works — a
+        core-memory block it can edit, a scratchpad it appends to — therefore rides after the
+        breakpoint instead, where a change costs only its own tokens.
+        """
+        return "\n\n".join(
+            [c for tool in self._tools.values() if tool.live_system_prompt and (c := await tool.system_prompt())]
+        )
 
     async def user_messages(self) -> list[MessageParam]:
         """Per-turn user blocks every tool injects at the top of the prompt (skip Nones)."""
