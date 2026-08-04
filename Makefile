@@ -9,13 +9,13 @@ setup:
 lint:
 	uv run ruff format --check baski/
 	uv run ruff check baski/
-	uv run python anon_lint.py --recursive baski/
+	uv run python -m baski.lint --recursive baski/
 
 .PHONY: lint-fix
 lint-fix:
 	uv run ruff format baski/
 	uv run ruff check baski/ --fix
-	uv run python anon_lint.py --recursive baski/
+	uv run python -m baski.lint --recursive baski/
 
 .PHONY: typecheck
 typecheck:

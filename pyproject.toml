@@ -64,7 +64,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["ALL"]
-external = ["ANON001", "ANON002"]  # anon_lint.py custom rules
+external = ["ANON001", "ANON002", "ANON003"]  # baski.lint custom rules
 ignore = [
     # Formatter conflicts
     "COM812",
