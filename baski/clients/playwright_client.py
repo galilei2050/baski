@@ -168,11 +168,20 @@ class PlaywrightClient:
         return _html_to_markdown(html_content)
 
     async def _safe_goto(self, page: Page, url: str) -> None:
-        """Navigate to URL with retry logic for network errors and timeouts."""
+        """Navigate to URL, retrying only failures that could plausibly go the other way.
+
+        One deadline covers the whole attempt. Without it the three waits inside `_attempt_goto`
+        (navigate, load, body) each claim the full timeout, so a page that never renders burned
+        3 x 3 x 90 s; the recorded failures ran to 464 s while the slowest SUCCESSFUL fetch in the
+        same corpus took 122 s and p99 took 80 s. The caller is a person waiting in a chat.
+        """
         last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
-                http_error = await self._attempt_goto(page, url)
+                async with asyncio.timeout(self.timeout / 1000):
+                    http_error = await self._attempt_goto(page, url)
+            except TimeoutError as e:
+                raise TimeoutError(f"Page did not load within {self.timeout / 1000:.0f}s: {url}") from e
             except (PlaywrightError, PlaywrightTimeoutError) as e:
                 if not _is_retryable_error(str(e)):
                     raise
@@ -280,11 +289,13 @@ def _strip_to_markdown(html: str) -> str:
     return md(str(soup), heading_style="atx")
 
 
+# Only failures a second attempt could plausibly survive: a dropped connection or a proxy hiccup.
+# A timeout is not one of them and used to be listed here. Measured over 663 recorded runs: of 93
+# failed fetches, exactly ONE url ever loaded successfully anywhere else — and none of the 24
+# timeouts did. Retrying them bought nothing and cost the person in the chat minutes of silence.
 _RETRYABLE_PATTERNS = (
     "net::ERR_ABORTED",
     "net::ERR_HTTP_RESPONSE_CODE_FAILURE",
-    "net::ERR_TIMED_OUT",
-    "Timeout",
     "net::ERR_PROXY_CONNECTION_FAILED",
 )
 
