@@ -2,11 +2,12 @@
 
 import gzip
 import re
+from functools import cached_property
 from http import HTTPStatus
 from typing import NamedTuple
 
 from httpx import HTTPStatusError, TimeoutException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from baski.clients.playwright_client import PlaywrightClient
 
@@ -27,25 +28,54 @@ class _Section(NamedTuple):
     title: str
 
 
-def _sections_of(page: str) -> list[_Section]:
-    """Every section of the WHOLE page, even when only a window is returned.
+class _Selection(NamedTuple):
+    """What asking a page for sections by name yields: their text, and the names it does not have."""
 
-    The structure is what lets the agent name the part it needs instead of hoping it was in the
-    window it got.
+    text: str
+    missing: list[str]
+
+
+class Page(BaseModel):
+    """A fetched page and the sections it is made of. Lifecycle: one read of one url.
+
+    The sections are always those of the WHOLE page, even when the reader only gets a window of it —
+    the structure is what lets an agent name the part it needs instead of hoping it was in the part
+    it got. Everything about a page lives here, so no caller has to carry its text around to ask it
+    something.
     """
-    found = [(m.start(), m.group(1).strip()) for m in _HEADING.finditer(page)][:_MAX_HEADINGS]
-    if not found:
-        return []
-    ends = [start for start, _ in found[1:]] + [len(page)]
-    return [_Section(start, end, title) for (start, title), end in zip(found, ends, strict=True)]
 
+    model_config = ConfigDict(frozen=True)
 
-def _contents(sections: list[_Section]) -> str:
-    """The list the agent picks section names out of."""
-    if len(sections) < _MIN_HEADINGS:
-        return ""
-    lines = "\n".join(f"  {s.title} ({s.end - s.start} chars)" for s in sections)
-    return f"Sections of the whole page — ask for any of them by name:\n{lines}"
+    text: str
+
+    @cached_property
+    def sections(self) -> list[_Section]:
+        """Each markdown heading and the span it owns, up to the next one."""
+        found = [(m.start(), m.group(1).strip()) for m in _HEADING.finditer(self.text)][:_MAX_HEADINGS]
+        if not found:
+            return []
+        ends = [start for start, _ in found[1:]] + [len(self.text)]
+        return [_Section(start, end, title) for (start, title), end in zip(found, ends, strict=True)]
+
+    def contents(self) -> str:
+        """The list the reader picks section names out of; empty when there is no structure to show."""
+        if len(self.sections) < _MIN_HEADINGS:
+            return ""
+        lines = "\n".join(f"  {s.title} ({s.end - s.start} chars)" for s in self.sections)
+        return f"Sections of the whole page — ask for any of them by name:\n{lines}"
+
+    def named(self, wanted: list[str]) -> _Selection:
+        """The named sections' text in page order, plus the names this page does not have."""
+        by_title = {s.title.casefold(): s for s in self.sections}
+        found = sorted({by_title[name.casefold()] for name in wanted if name.casefold() in by_title})
+        return _Selection(
+            text="\n\n".join(self.text[s.start : s.end] for s in found),
+            missing=[name for name in wanted if name.casefold() not in by_title],
+        )
+
+    def __len__(self) -> int:
+        """How long the page is, in characters — what every cut is measured against."""
+        return len(self.text)
 
 
 class WebBrowseTool(Tool):
@@ -93,13 +123,13 @@ class WebBrowseTool(Tool):
         """Fetch URL and return the page as markdown — the named sections, or one window of it."""
         try:
             page = await self._fetch(url)
-            return self._sections(page, sections) if sections else self._window(page, offset)
+            return self._named(page, sections) if sections else self._window(page, offset)
         except HTTPStatusError as e:
             return self._handle_http_error(url=url, e=e)
         except TimeoutException:
             return f"Website timed out. Try again later: {url}"
 
-    async def _fetch(self, url: str) -> str:
+    async def _fetch(self, url: str) -> Page:
         """The page, loading it only if it is not already held.
 
         Reading a long page takes several calls — its opening, then the sections named from the list
@@ -108,34 +138,33 @@ class WebBrowseTool(Tool):
         into 1.9 MB, so nothing is evicted and there is nothing to bound.
         """
         if packed := self._pages.get(url):
-            return gzip.decompress(packed).decode()
-        page = await self.playwright_client.fetch_page_markdown(url)
-        self._pages[url] = gzip.compress(page.encode())
-        return page
+            return Page(text=gzip.decompress(packed).decode())
+        text = await self.playwright_client.fetch_page_markdown(url)
+        self._pages[url] = gzip.compress(text.encode())
+        return Page(text=text)
 
-    def _sections(self, page: str, wanted: list[str]) -> str:
+    def _named(self, page: Page, wanted: list[str]) -> str:
         """The named sections, in page order, in one result.
 
         Naming beats paging on both counts that matter. A name survives a re-fetch that shifts every
         offset, and several non-adjacent sections come back in ONE call — where paging costs a turn
         each, and a turn re-reads the whole conversation prefix.
         """
-        sections = _sections_of(page)
-        by_title = {s.title.casefold(): s for s in sections}
-        missing = [name for name in wanted if name.casefold() not in by_title]
-        found = [by_title[name.casefold()] for name in wanted if name.casefold() in by_title]
-        if not found:
-            return f"No section named {', '.join(repr(m) for m in missing)}.\n\n{_contents(sections)}"
+        found = page.named(wanted)
+        absent = f"No section named {', '.join(repr(m) for m in found.missing)}."
+        if not found.text:
+            return f"{absent}\n\n{page.contents()}"
 
-        body = "\n\n".join(page[s.start : s.end] for s in sorted(set(found)))
-        parts = [body[: self._max_chars]]
-        if len(body) > self._max_chars:
-            parts.append(f"[Sections cut at {self._max_chars} of {len(body)} characters — ask for fewer at once.]")
-        if missing:
-            parts.append(f"[No section named {', '.join(repr(m) for m in missing)}.]\n{_contents(sections)}")
+        parts = [found.text[: self._max_chars]]
+        if len(found.text) > self._max_chars:
+            parts.append(
+                f"[Sections cut at {self._max_chars} of {len(found.text)} characters — ask for fewer at once.]"
+            )
+        if found.missing:
+            parts.append(f"[{absent}]\n{page.contents()}")
         return "\n\n".join(parts)
 
-    def _window(self, page: str, offset: int) -> str:
+    def _window(self, page: Page, offset: int) -> str:
         """The opening of a long page (or a slice from `offset`), with the whole page's sections listed.
 
         A page is never silently cut down to what fits: cutting blind means neither the tool nor the
@@ -145,17 +174,17 @@ class WebBrowseTool(Tool):
         """
         end = min(offset + self._max_chars, len(page))
         if offset == 0 and end == len(page):
-            return page
-        sections = _sections_of(page)
+            return page.text
+        contents = page.contents()
         header = f"[Characters {offset}-{end} of {len(page)}.]"
         more = (
             "[Ask for the sections you need by name."
-            + ("" if len(sections) >= _MIN_HEADINGS else f" This page lists none — read on with offset={end}.")
+            + ("" if contents else f" This page lists none — read on with offset={end}.")
             + "]"
             if end < len(page)
             else "[End of page.]"
         )
-        return "\n\n".join(part for part in (header, _contents(sections), page[offset:end], more) if part)
+        return "\n\n".join(part for part in (header, contents, page.text[offset:end], more) if part)
 
     def _handle_http_error(self, *, url: str, e: HTTPStatusError) -> str:
         """Convert HTTP status errors to descriptive strings."""
