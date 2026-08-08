@@ -17,7 +17,7 @@ from .events import Message as MessageEvent
 from .execute_result import AgentExecuteResult
 from .judge import Judge, JudgeUnavailableError, Verdict, retry_prompt
 from .message_history import EPHEMERAL_CACHE, MessageHistory
-from .pricing import ExecutionStats
+from .pricing import ExecutionStats, ModelPrice
 from .toolset import ToolSet
 from .trace import TraceCollector, TraceCollectorConfig
 
@@ -110,6 +110,11 @@ class AgentConfig(NamedTuple):
     # spent the money, and a default would fill the column with one name that is right for some rows
     # and silently wrong for the rest — unfalsifiable afterwards. The caller knows; let it say.
     name: str
+    # What the model costs, per billed bucket. Required and supplied by the caller, because the
+    # caller is who picked the model: a table lookup here can only price models this library knows,
+    # and an agent may legitimately run on one behind a gateway that it never will. Anthropic's own
+    # rates are in `MODEL_PRICING` for callers that want them.
+    price: ModelPrice
     model: str = DEFAULT_MODEL
     await_trace: bool = False  # block reply on trace persistence (tests/probe read it right after)
     local_traces_dir: str | None = None  # write full traces here instead of GCS (tests/probe); None → GCS
@@ -142,6 +147,7 @@ class Agent:
         self._judge_max_retries = config.judge_max_retries
         self._max_turns = config.max_turns
         self._name = config.name
+        self._price = config.price
         self.on_event = on_event
         # Not in message_history.turns, so truncate/prune_transcript can't reach it.
         self._pinned: list[MessageParam] = []
@@ -423,7 +429,7 @@ class Agent:
         label = self._request_label()
         logger.info("Agent execution started", extra={"userRequest": label[:100]})
 
-        stats = ExecutionStats(model=str(self.params["model"]))
+        stats = ExecutionStats(model=str(self.params["model"]), price=self._price)
         trace = TraceCollector(
             config=TraceCollectorConfig(
                 user_request=label,
