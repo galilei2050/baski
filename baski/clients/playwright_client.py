@@ -257,8 +257,15 @@ def _html_to_markdown(html: str) -> str:
     than a tag blocklist, which can't catch ads/cookie/share widgets. It returns None when
     there's no clear main content (search-result pages, SPAs, sparse pages); fall back to
     selector stripping so those still yield something.
+
+    Comments are excluded: trafilatura keeps them by default, so every article with a comment
+    section, every forum thread and every review pile arrived as body text — bulk that a reader
+    cannot cite and an agent pays to carry. `deduplicate` drops the repeated blocks that syndicated
+    and paginated pages emit.
     """
-    extracted = trafilatura.extract(html, output_format="markdown", include_images=False)
+    extracted = trafilatura.extract(
+        html, output_format="markdown", include_images=False, include_comments=False, deduplicate=True
+    )
     return extracted or _strip_to_markdown(html)
 
 

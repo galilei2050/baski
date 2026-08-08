@@ -42,6 +42,7 @@ class TraceCollectorConfig(NamedTuple):
 
     user_request: str
     model: str
+    agent_name: str  # which agent this run belongs to — required, never defaulted (see `_save_to_db`)
     system_prompt: str
     bucket_name: str
     database: AsyncDatabase
@@ -69,7 +70,27 @@ class ToolResultRecord(BaseModel):
     output: str
     is_error: bool
     duration_ms: int
+    cost: float = 0.0  # USD the tool itself spent (a delegating sub-agent, a paid API); 0 for a plain tool
     sub_trace_ids: list[str] = []  # traces of any agents this tool spawned (sub-agent delegation)
+
+
+class ToolUsageRecord(BaseModel):
+    """What one tool cost a run, summed over its calls — the per-tool line of the spend summary.
+
+    A list of these, not a name→count map: a new measure is a new FIELD here, readable beside the
+    ones already stored and aggregable with `$unwind` + `$group`, whereas widening a map means a
+    second parallel map per measure and rows of two different shapes in one collection.
+    """
+
+    name: str
+    calls: int
+    errors: int
+    cost: float  # USD the tool itself spent — a delegating sub-agent, a paid API; 0 for a plain tool
+    duration_ms: int
+    # What the tool put into the agent's context. It is paid twice — written into the prompt cache
+    # once at 1.25x input price, then read back at 0.10x on every remaining turn — so this is the
+    # measure that says which tool is really driving the token bill, not the call count.
+    output_chars: int
 
 
 class TurnRecord(BaseModel):
@@ -133,6 +154,7 @@ class TraceCollector:
         self.id = str(uuid.uuid4())
         self._user_request = config.user_request
         self._model = config.model
+        self._agent_name = config.agent_name
         self._system_prompt = config.system_prompt
         self._bucket_name = config.bucket_name
         self._database = config.database
@@ -189,6 +211,7 @@ class TraceCollector:
         tool_results: list[ToolResultBlockParam],
         timings: dict[str, int],
         sub_trace_ids: dict[str, list[str]],
+        costs: dict[str, float],
     ) -> None:
         """Record tool execution results into the current turn."""
         turn = self._turn
@@ -210,6 +233,7 @@ class TraceCollector:
                     output=content if isinstance(content, str) else str(content),
                     is_error=is_error,
                     duration_ms=timings.get(tool_use_id, 0),
+                    cost=costs.get(tool_use_id, 0.0),
                     sub_trace_ids=sub_trace_ids.get(tool_use_id, []),
                 )
             )
@@ -292,18 +316,52 @@ class TraceCollector:
         else:
             logger.info("Trace uploaded", extra={"traceId": self.id})
 
+    def _tool_usage(self) -> list[ToolUsageRecord]:
+        """Fold this run's tool calls into one record per tool, dearest first."""
+        totals: dict[str, ToolUsageRecord] = {}
+        for turn in self._turns:
+            for result in turn.tool_results:
+                row = totals.setdefault(
+                    result.tool_name,
+                    ToolUsageRecord(name=result.tool_name, calls=0, errors=0, cost=0.0, duration_ms=0, output_chars=0),
+                )
+                row.calls += 1
+                row.errors += int(result.is_error)
+                row.cost += result.cost
+                row.duration_ms += result.duration_ms
+                row.output_chars += len(result.output)
+        return sorted(totals.values(), key=lambda r: (-r.cost, -r.output_chars))
+
     async def _save_to_db(self, stats: ExecutionStats) -> None:
-        """Save lightweight trace summary to MongoDB."""
+        """Save the trace summary to MongoDB — enough of it to answer "where did the money go".
+
+        The summary is the only index over runs; the full trace is a gzipped blob in GCS that has to
+        be downloaded and parsed. So it carries what a spend question needs: WHO ran (`agent_name` —
+        one collection holds the main loop, every sub-agent and the nightly maintenance pass, and the
+        model alone does not tell them apart), WHAT it delegated to (`sub_trace_ids`, so one answer's
+        whole tree is walkable without opening a blob), and both cache buckets (priced 12.5x apart,
+        so `cost` is otherwise unexplainable and `input_tokens` alone is only the part that missed
+        the cache). `cost` covers this run AND everything it delegated to; `own_cost` covers only
+        this agent's own calls, so a query may sum rows without counting a child twice.
+
+        `tools` is the per-tool line of the same question — see `ToolUsageRecord`.
+        """
         doc = {
             "_id": self.id,
             "created_at": self._created_at,
             "user_request": self._user_request[:128],
+            "agent_name": self._agent_name,
             "model": self._model,
             "input_tokens": stats.input_tokens,
             "output_tokens": stats.output_tokens,
+            "cache_read_tokens": stats.cache_read_tokens,
+            "cache_write_tokens": stats.cache_write_tokens,
             "turn_count": stats.turn_count,
             "tool_call_count": stats.tool_calls,
+            "sub_trace_ids": sorted({s for turn in self._turns for tr in turn.tool_results for s in tr.sub_trace_ids}),
+            "tools": [t.model_dump() for t in self._tool_usage()],
             "cost": stats.cost,
+            "own_cost": stats.own_cost,
             "error": self._error,
         }
         try:

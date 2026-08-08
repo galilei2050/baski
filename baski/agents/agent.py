@@ -105,6 +105,11 @@ class AgentConfig(NamedTuple):
     bucket_name: str
     system_prompt: str
     judge: Judge  # grades answer completeness at the loop's exit and retries until finished
+    # Who is running, recorded on every trace. Required, with no default: with sub-agents every run
+    # lands in one `traces` collection, a row saying only "claude-opus-5" cannot say which of them
+    # spent the money, and a default would fill the column with one name that is right for some rows
+    # and silently wrong for the rest — unfalsifiable afterwards. The caller knows; let it say.
+    name: str
     model: str = DEFAULT_MODEL
     await_trace: bool = False  # block reply on trace persistence (tests/probe read it right after)
     local_traces_dir: str | None = None  # write full traces here instead of GCS (tests/probe); None → GCS
@@ -136,6 +141,7 @@ class Agent:
         self._judge = config.judge
         self._judge_max_retries = config.judge_max_retries
         self._max_turns = config.max_turns
+        self._name = config.name
         self.on_event = on_event
         # Not in message_history.turns, so truncate/prune_transcript can't reach it.
         self._pinned: list[MessageParam] = []
@@ -298,7 +304,9 @@ class Agent:
         tool_results = await self.toolset.execute(tool_calls)
         stats.cost += sum(self.toolset.last_costs.values())  # tool spend (nested agents, paid APIs) joins the turn
         self.message_history.add_tool_results(tool_results)
-        trace.record_tool_results(tool_results, self.toolset.last_timings, self.toolset.last_sub_trace_ids)
+        trace.record_tool_results(
+            tool_results, self.toolset.last_timings, self.toolset.last_sub_trace_ids, self.toolset.last_costs
+        )
 
         name_by_id = {tc.id: tc.name for tc in tool_calls}
         for result in tool_results:
@@ -423,6 +431,7 @@ class Agent:
                 system_prompt=await self._system(),
                 bucket_name=self.bucket_name,
                 database=self.database,
+                agent_name=self._name,
                 local_traces_dir=self._local_traces_dir,
             )
         )
