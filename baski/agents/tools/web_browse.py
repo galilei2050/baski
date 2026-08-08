@@ -28,18 +28,36 @@ class WebBrowseTool(Tool):
 
         url: str = Field(description="The full URL to browse (e.g., 'https://example.com')")
 
-    def __init__(self, playwright_client: PlaywrightClient) -> None:
-        """Store the Playwright client for page fetching."""
+    def __init__(self, playwright_client: PlaywrightClient, *, max_chars: int) -> None:
+        """Store the Playwright client, and the size beyond which a page is cut.
+
+        `max_chars` is required: an unbounded page is not a safe default. Whatever the site returns
+        lands whole in the caller's context — one measured fetch was 457,780 characters, several
+        times the entire working budget of the agent that asked for it. The number is the caller's
+        to choose (it knows its own context budget); having one is not optional.
+        """
         self.playwright_client = playwright_client
+        self._max_chars = max_chars
 
     async def execute(self, url: str) -> str:  # type: ignore[override]
-        """Fetch URL and return page content as markdown."""
+        """Fetch URL and return page content as markdown, cut to `max_chars` if it is longer."""
         try:
-            return await self.playwright_client.fetch_page_markdown(url)
+            return self._clip(await self.playwright_client.fetch_page_markdown(url))
         except HTTPStatusError as e:
             return self._handle_http_error(url=url, e=e)
         except TimeoutException:
             return f"Website timed out. Try again later: {url}"
+
+    def _clip(self, page: str) -> str:
+        """Cut an over-long page, and SAY it was cut.
+
+        The marker is the point: a silently truncated page reads exactly like a complete one, so the
+        agent answers from the top of an article believing it read all of it. Told the page was cut,
+        it can fetch a more specific URL or tell the owner what it did not see.
+        """
+        if len(page) <= self._max_chars:
+            return page
+        return f"{page[: self._max_chars]}\n\n[Page cut: showing {self._max_chars} of {len(page)} characters.]"
 
     def _handle_http_error(self, *, url: str, e: HTTPStatusError) -> str:
         """Convert HTTP status errors to descriptive strings."""
