@@ -38,6 +38,7 @@ dependencies = [
     "aiogram>=3",
     "marshmallow>=3",
     "playwright",
+    "pypdf",  # browse_website: a url that serves a document, not a page — Chromium cannot render one
     "beautifulsoup4",
     "markdownify",
     "pulumi",

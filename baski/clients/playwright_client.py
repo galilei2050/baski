@@ -1,6 +1,7 @@
 """Async Playwright client that fetches pages and converts them to cleaned markdown."""
 
 import asyncio
+import io
 import logging
 from datetime import UTC
 from datetime import datetime as _dt
@@ -8,6 +9,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Self, cast
 
+import httpx
 import trafilatura
 from anyio import Path as AsyncPath
 from bs4 import BeautifulSoup
@@ -18,6 +20,7 @@ from markdownify import markdownify as md
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, StorageState, async_playwright
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from pypdf import PdfReader
 
 __all__ = ["PlaywrightClient"]
 
@@ -159,6 +162,12 @@ class PlaywrightClient:
         try:
             await self._safe_goto(page, url)
             html_content = await page.content()
+        except PlaywrightError as e:
+            if _DOWNLOAD_MARKER not in str(e):
+                await self._dump_error_context(page, url, e)
+                raise
+            logger.info("Url serves a document, not a page", extra={"url": url})
+            return await _fetch_document(url)
         except Exception as e:
             await self._dump_error_context(page, url, e)
             raise
@@ -242,6 +251,46 @@ class PlaywrightClient:
             )
         except Exception as e:  # noqa: BLE001 — debug dump must not crash the main error handler
             logger.info("Failed to dump error context", extra={"error": str(e)})
+
+
+# Chromium answers a url that serves a file — a PDF, a CSV — by starting a download instead of
+# rendering, and reports it as this error. Measured over 663 recorded runs: 51 of the 93 browse
+# failures were exactly this, 44 of them ending in `.pdf`, and the hosts were the authoritative ones
+# — cdtfa.ca.gov, chp.ca.gov, Stanford, BYU, NORC. The agent was losing primary sources and falling
+# back to second-hand pages, or to inventing the number.
+_DOWNLOAD_MARKER = "Download is starting"
+_PDF_MAGIC = b"%PDF-"
+_DOCUMENT_TIMEOUT = 60.0
+
+
+async def _fetch_document(url: str) -> str:
+    """Download what the browser refused to render, and return its text.
+
+    Only PDFs are decoded; anything else comes back as text if it is text, and raises otherwise. The
+    point is to stop losing the source, not to become a file converter.
+    """
+    async with httpx.AsyncClient(follow_redirects=True, headers={"user-agent": _SAFARI_UA}) as client:
+        response = await client.get(url, timeout=_DOCUMENT_TIMEOUT)
+        response.raise_for_status()
+    body = response.content
+    if body.startswith(_PDF_MAGIC):
+        return await asyncio.to_thread(_pdf_to_text, body, url)
+    if response.headers.get("content-type", "").startswith("text/"):
+        return response.text
+    raise ValueError(f"{url} serves {response.headers.get('content-type', 'an unknown type')}, which is not readable")
+
+
+def _pdf_to_text(body: bytes, url: str) -> str:
+    """Page text, one blank line between pages, so a citation can name the page it came from."""
+    reader = PdfReader(io.BytesIO(body))
+    pages = [page.extract_text() or "" for page in reader.pages]
+    text = "\n\n".join(
+        f"[page {number}]\n{content.strip()}" for number, content in enumerate(pages, 1) if content.strip()
+    )
+    if not text:
+        # A scanned PDF is images; saying so beats handing the agent an empty page it will fill in itself.
+        raise ValueError(f"{url} is a PDF with no extractable text ({len(pages)} pages — likely scanned images)")
+    return text
 
 
 _NAV_SELECTORS = (
