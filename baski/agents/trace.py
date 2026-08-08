@@ -162,7 +162,7 @@ class TraceCollector:
         self._turns: list[TurnRecord] = []
         self._result: AgentExecuteResult | None = None
         self._error: str | None = None
-        self._created_at = datetime.now().isoformat()
+        self._created_at = datetime.now()  # a real datetime: Mongo stores and compares it as one
         self._current_turn: TurnRecord | None = None
         self._turn_start: float = 0
         self._persist_task: asyncio.Task | None = None
@@ -269,7 +269,7 @@ class TraceCollector:
         """Assemble the full trace record — the single source for both persist modes."""
         return TraceRecord(
             id=self.id,
-            created_at=self._created_at,
+            created_at=self._created_at.isoformat(),  # the GCS record is JSON; there it is a string
             user_request=self._user_request,
             model=self._model,
             system_prompt=self._system_prompt,
@@ -345,6 +345,12 @@ class TraceCollector:
         this agent's own calls, so a query may sum rows without counting a child twice.
 
         `tools` is the per-tool line of the same question — see `ToolUsageRecord`.
+
+        `created_at` goes in as a datetime, not its `isoformat()`. As a string it carried the
+        WRITER's offset (`primitives.datetime.now` is local time), so rows from a server reading
+        `+00:00` and rows from a laptop reading `-07:00` sorted against each other by their text —
+        and a window query silently lost the ones whose offset ordered them wrong. A date is not a
+        string; every other timestamp in these databases is stored tz-aware for exactly this reason.
         """
         doc = {
             "_id": self.id,
