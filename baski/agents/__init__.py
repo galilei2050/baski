@@ -16,7 +16,7 @@ from .events import (
     noop,
 )
 from .execute_result import AgentExecuteResult
-from .judge import DEFAULT_JUDGE_MODEL, GeminiJudge, Judge, Verdict
+from .judge import DEFAULT_JUDGE_MODEL, GeminiJudge, Judge, Jury, Verdict
 from .message_history import InMemoryMessageHistory, MessageHistory
 from .tool import Tool, ToolResult
 from .toolset import ToolSet
@@ -36,6 +36,7 @@ __all__ = [
     "InMemoryMessageHistory",
     "Judge",
     "Judged",
+    "Jury",
     "Listener",
     "Message",
     "MessageHistory",

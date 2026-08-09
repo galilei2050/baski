@@ -6,6 +6,7 @@ blind spots, so it catches completion failures the executor is prone to wave thr
 COMPLETENESS of the deliverable, not factual truth (transcript-checkable without domain knowledge).
 """
 
+import asyncio
 import logging
 from http import HTTPStatus
 from typing import Protocol
@@ -98,6 +99,44 @@ class Verdict(BaseModel):
         description="A direct, imperative instruction telling the assistant what to do next to finish. "
         "Empty when finished. Same language as the user request."
     )
+
+
+class Jury:
+    """Several judges on one answer; it passes only if every one of them passes.
+
+    An agent usually has more than one reason to send an answer back, and those reasons are not the
+    same kind of thing: completeness is a model's judgement, while "did it cite a page it never
+    opened" is arithmetic over the run's own tool calls. Wrapping one judge in another hides which is
+    which and fixes the order at the definition; a jury names the whole panel where it is assembled.
+
+    Judges run concurrently — they do not read each other's verdicts, and one of them is usually a
+    model call worth not waiting for twice.
+
+    Lifecycle: as long-lived as the judges it holds.
+    """
+
+    def __init__(self, judges: list["Judge"]) -> None:
+        """Take the panel. Empty is a caller bug, not a jury that passes everything."""
+        if not judges:
+            raise ValueError("A jury needs at least one judge")
+        self._judges = judges
+
+    async def evaluate(self, transcript: str, answer: str, rules: str) -> Verdict:
+        """One verdict from all of them: finished only if none objects, with every objection kept.
+
+        A `JudgeUnavailableError` from any member propagates, so the loop's existing fail-open path
+        decides — an outage in one grader must not read as that grader's approval.
+        """
+        verdicts = await asyncio.gather(
+            *(judge.evaluate(transcript=transcript, answer=answer, rules=rules) for judge in self._judges)
+        )
+        missing = [gap for verdict in verdicts for gap in verdict.missing]
+        feedback = [verdict.feedback for verdict in verdicts if verdict.feedback]
+        return Verdict(
+            finished=all(verdict.finished for verdict in verdicts),
+            missing=missing,
+            feedback="\n".join(feedback),
+        )
 
 
 class Judge(Protocol):
