@@ -238,6 +238,11 @@ class InMemoryMessageHistory(MessageHistory):
     def format_for_judge(self) -> str:
         """Compact transcript for the completeness judge: user/assistant text + `[tool] name(args)` markers.
 
+        Call arguments are rendered whole. A clipped payload cannot be told apart from an argument that
+        was never passed, so the judge grades a guess: it read a cut-off `create_estimate(...)` as a
+        missing required field and ordered the agent to call the tool again — two work orders per call in
+        production. The transcript's real bound is this history's token budget, not a per-call limit.
+
         Tool *results* are omitted on purpose — the judge grades completeness from what was asked, said,
         and run, not from raw tool output (that bloats the prompt and pulls the judge into fact-checking).
         """
@@ -253,7 +258,7 @@ class InMemoryMessageHistory(MessageHistory):
                         lines.append(f"[{message['role']}] {_block_field(block, 'text')}")
                     elif btype == "tool_use":
                         args = _block_field(block, "input")
-                        rendered = json.dumps(args, ensure_ascii=False)[:200] if args else ""
+                        rendered = json.dumps(args, ensure_ascii=False) if args else ""
                         lines.append(f"[tool] {_block_field(block, 'name')}({rendered})")
         return "\n".join(lines)
 
