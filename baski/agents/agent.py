@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-4-8"
 
+# The judge grades one transcript with a cheap flash model — seconds when Vertex answers at all.
+# The bound is here and not in HttpOptions.timeout because the genai SDK retries a timeout
+# (_api_client treats httpx.TimeoutException as retriable) and its async path may run on aiohttp,
+# so a per-request deadline neither bounds the total wait nor raises one catchable exception type.
+JUDGE_DEADLINE_SECONDS = 120.0
+
 AGENT_LOOP_GUIDANCE = (
     "Always use the most appropriate tool. Use parallel tool calls when they are independent\n"
     "Provide brief explanation of your reasoning for when you use tools and what are next steps."
@@ -397,20 +403,28 @@ class Agent:
         return ""
 
     async def _grade(self, answer: str) -> Verdict | None:
-        """Grade the candidate answer for completeness, or None if the judge is unavailable.
+        """Grade the answer for completeness, or None when the judge can't answer: outage or deadline.
 
-        Fail open: the judge is a best-effort quality gate, not a hard dependency. A judge outage
-        (e.g. Vertex 429 quota) must not sink an answer the agent already produced — None tells the
-        loop to accept the candidate rather than fail the whole run.
+        Fail open: a Vertex 429 or a judge that never returns must not sink an answer the agent
+        already produced — a run silently outliving its own request timeout is the worse failure.
         """
         try:
-            return await self._judge.evaluate(
-                transcript=self.message_history.format_for_judge(),
-                answer=answer,
-                rules=await self._system(),
+            return await asyncio.wait_for(
+                self._judge.evaluate(
+                    transcript=self.message_history.format_for_judge(),
+                    answer=answer,
+                    rules=await self._system(),
+                ),
+                timeout=JUDGE_DEADLINE_SECONDS,
             )
         except JudgeUnavailableError as e:
             logger.warning("Judge unavailable; accepting answer (fail open)", extra={"error": str(e)})
+            return None
+        except TimeoutError:
+            logger.warning(
+                "Judge exceeded its deadline; accepting answer (fail open)",
+                extra={"deadline_seconds": JUDGE_DEADLINE_SECONDS},
+            )
             return None
 
     async def execute(self) -> AgentExecuteResult:
