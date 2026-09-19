@@ -36,7 +36,7 @@ dependencies = [
     "pymongo>=4.9",
     "cryptography",
     "aiogram>=3",
-    "marshmallow>=3",
+    "marshmallow>=4",  # 4 orders dump output by default; on 3 that needed Meta.ordered, which 4 ignores
     "playwright",
     "pypdf",  # browse_website: a url that serves a document, not a page — Chromium cannot render one
     "beautifulsoup4",

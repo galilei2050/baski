@@ -319,7 +319,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "hypercorn" },
     { name = "markdownify" },
-    { name = "marshmallow", specifier = ">=3" },
+    { name = "marshmallow", specifier = ">=4" },
     { name = "playwright" },
     { name = "pulumi" },
     { name = "pulumi-gcp" },
