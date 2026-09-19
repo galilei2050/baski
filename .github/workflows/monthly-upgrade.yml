@@ -8,6 +8,11 @@ on:
 jobs:
   upgrade:
     runs-on: ubuntu-latest
+    # The repo default for GITHUB_TOKEN is read-only, so create-pull-request
+    # gets a 403 on the branch push unless the job asks for write itself.
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
