@@ -25,7 +25,6 @@ from hypercorn.config import Config as HypercornConfig
 from pydantic import ValidationError
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous import database
-from pymongo.errors import PyMongoError
 
 from ..env import get_env
 from ..server.async_server import AsyncServer
@@ -149,22 +148,10 @@ class FastAPIServer(AsyncServer):
         app.add_exception_handler(RequestValidationError, request_validation_exception_handler)  # type: ignore[arg-type]
         app.add_exception_handler(ValidationError, request_validation_exception_handler)  # type: ignore[arg-type]
 
-        for exception_class in [
-            ArithmeticError,
-            AssertionError,
-            AttributeError,
-            LookupError,
-            ImportError,
-            MemoryError,
-            ReferenceError,
-            ValueError,
-            TypeError,
-            OSError,
-            RuntimeError,
-            PyMongoError,
-        ]:
-            app.add_exception_handler(exception_class, runtime_exception_handler)
+        # Catch-all: the narrower registrations below still win by MRO
+        app.add_exception_handler(Exception, runtime_exception_handler)
 
+        exception_class: type[Exception]
         for exception_class in [asyncio.TimeoutError]:
             app.add_exception_handler(exception_class, timeout_exception_handler)  # type: ignore[arg-type]
 
