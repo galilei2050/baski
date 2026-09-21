@@ -85,7 +85,7 @@ def on_exception(  # noqa: PLR0913 — decorator factory; each option configures
                 ret_val = await fn(*args, **kwargs)
             except asyncio.CancelledError:
                 logger.warning("Coroutine %s was cancelled.", _name)
-                return None
+                raise
             except exceptions as e:
                 _log_handled_exception(
                     exc=e,
