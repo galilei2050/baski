@@ -1,6 +1,7 @@
 import pytest
 from datetime import datetime, timezone
 from baski.primitives import json
+from baski.primitives.datetime import convert_values_to_date
 
 
 @pytest.mark.parametrize(
@@ -29,3 +30,12 @@ def test_str_to_datetime(date_str):
 def test_loads_returns_the_same_instant_dumps_wrote():
     loaded = json.loads('{"z": "2021-01-01T00:00:00Z", "offset": "2021-01-01T00:00:00+00:00"}')
     assert loaded["z"] == loaded["offset"] == datetime(2021, 1, 1, tzinfo=timezone.utc)
+
+
+def test_convert_values_to_date_keeps_lists_of_scalars():
+    assert convert_values_to_date({"tags": ["urgent", 2]}) == {"tags": ["urgent", 2]}
+
+
+def test_convert_values_to_date_converts_inside_lists():
+    converted = convert_values_to_date({"seen": ["2021-01-01T00:00:00Z"]})
+    assert converted["seen"] == [datetime(2021, 1, 1, tzinfo=timezone.utc)]
