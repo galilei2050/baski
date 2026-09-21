@@ -83,7 +83,7 @@ async def http_exception_handler(request: Request, exc: HTTPStatusError) -> Resp
                 "url": str(exc.request.url),
                 "method": exc.request.method,
                 "statusCode": exc.response.status_code,
-                "content": exc.response.content,
+                "content": exc.response.text,
             },
             "body": await request_body(request),
         },
