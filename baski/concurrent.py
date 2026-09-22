@@ -30,9 +30,13 @@ async def map_async(
         tasks = [asyncio.create_task(async_fn(item, *args, **kwargs)) for item in backlog[: concurrency()]]
         backlog = backlog[concurrency() :]
 
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED, timeout=timeout)
+        _, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED, timeout=timeout)
         if pending:
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
             raise RuntimeError(HTTPStatus.INTERNAL_SERVER_ERROR, "Map async timeout")
 
-        results.extend([p.result() for p in done if p.result() is not None])
+        # iterate tasks, not the done set: a set has no order and this is a map
+        results.extend([r for r in (task.result() for task in tasks) if r is not None])
     return results

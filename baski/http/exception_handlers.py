@@ -14,7 +14,6 @@ from fastapi.responses import JSONResponse, Response
 from google.api_core.exceptions import GoogleAPICallError
 from google.genai.errors import APIError as GenAIAPIError
 from httpx import ConnectError, HTTPStatusError, ReadError, StreamError
-from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from .config import AppConfig
@@ -83,7 +82,7 @@ async def http_exception_handler(request: Request, exc: HTTPStatusError) -> Resp
                 "url": str(exc.request.url),
                 "method": exc.request.method,
                 "statusCode": exc.response.status_code,
-                "content": exc.response.content,
+                "content": exc.response.text,
             },
             "body": await request_body(request),
         },
@@ -141,23 +140,6 @@ async def runtime_exception_handler(request: Request, exc: Exception) -> JSONRes
     )
     return JSONResponse(
         content={"error": {"code": code, "message": f"Exception {type(exc)} during execution"}}, status_code=code
-    )
-
-
-async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
-    """Return 422 for Pydantic model validation errors."""
-    logger.error(
-        "Pydantic validation error",
-        exc_info=exc,
-        extra={
-            "errors": jsonable_encoder(exc.errors()),
-            "body": await request_body(request),
-        },
-    )
-
-    return JSONResponse(
-        status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
-        content={"detail": str(exc)},
     )
 
 
