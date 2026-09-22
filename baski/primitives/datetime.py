@@ -99,7 +99,7 @@ def _covert_value(v: object) -> object:
     if isinstance(v, str):
         return any_to_datetime(v, v)  # type: ignore[arg-type]
     if isinstance(v, list):
-        return [convert_values_to_date(el) for el in v]
+        return [_covert_value(el) for el in v]
     return v
 
 
