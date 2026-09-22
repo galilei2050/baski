@@ -82,6 +82,18 @@ async def test_reading_on_in_the_same_page_does_not_load_it_again() -> None:
     assert site.loads == 1, "the follow-up read slices the page already held"
 
 
+@pytest.mark.asyncio
+async def test_a_page_that_never_loads_is_reported_as_a_timeout() -> None:
+    class _NeverLoads:
+        async def fetch_page_markdown(self, url: str) -> str:
+            # what PlaywrightClient._safe_goto raises: the builtin, not httpx's
+            raise TimeoutError(f"Page did not load within 90s: {url}")
+
+    tool = WebBrowseTool(cast("PlaywrightClient", _NeverLoads()), max_chars=100)
+
+    assert await tool.execute("https://slow.test") == "Website timed out. Try again later: https://slow.test"
+
+
 def test_the_window_size_has_no_default() -> None:
     with pytest.raises(TypeError):
         WebBrowseTool(cast("PlaywrightClient", _Page("")))  # type: ignore[call-arg]  # that is the point
