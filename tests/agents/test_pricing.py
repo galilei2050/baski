@@ -20,7 +20,7 @@ def test_opus_is_not_billed_at_sonnet_rates() -> None:
     usage = Usage(input_tokens=1_000_000, output_tokens=1_000_000)
 
     assert calculate_cost(MODEL_PRICING["claude-opus-5"], usage) == pytest.approx(30.0)  # $5 in + $25 out
-    assert calculate_cost(MODEL_PRICING["claude-sonnet-5"], usage) == pytest.approx(18.0)  # $3 in + $15 out
+    assert calculate_cost(MODEL_PRICING["claude-sonnet-5"], usage) == pytest.approx(12.0)  # $2 in + $10 out
 
 
 def test_each_cache_bucket_is_priced_at_its_own_rate() -> None:
@@ -30,6 +30,10 @@ def test_each_cache_bucket_is_priced_at_its_own_rate() -> None:
 
     # $5 base: a written token costs 1.25x it, a read one 0.10x
     assert calculate_cost(anthropic_price(5.00, 25.00), usage) == pytest.approx(6.25 + 0.50)
+
+    # Opus 5.5 reads the cache at 0.05x of its $4 input — the multiplier would have charged 0.40
+    read_only = Usage(input_tokens=0, output_tokens=0, cache_read_input_tokens=1_000_000)
+    assert calculate_cost(MODEL_PRICING["claude-opus-5-5"], read_only) == pytest.approx(0.20)
 
 
 def test_a_model_that_does_not_bill_cache_reads_is_not_charged_for_them() -> None:

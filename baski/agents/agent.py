@@ -23,7 +23,7 @@ from .trace import TraceCollector, TraceCollectorConfig
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "claude-opus-4-8"
+DEFAULT_MODEL = "claude-opus-5-5"
 
 # The judge grades one transcript with a cheap flash model — seconds when Vertex answers at all.
 # The bound is here and not in HttpOptions.timeout because the genai SDK retries a timeout

@@ -40,8 +40,10 @@ def anthropic_price(base_input: float, output: float) -> ModelPrice:
 
 # Source: https://www.anthropic.com/pricing
 MODEL_PRICING: dict[str, ModelPrice] = {
+    # Explicit rates: Opus 5.5 bills a cached read at 0.05x of input, not the 0.10x `anthropic_price()` assumes.
+    "claude-opus-5-5": ModelPrice(input=4.00, output=20.00, cache_write=5.00, cache_read=0.20),
     "claude-opus-5": anthropic_price(5.00, 25.00),
-    "claude-sonnet-5": anthropic_price(3.00, 15.00),
+    "claude-sonnet-5": anthropic_price(2.00, 10.00),
     "claude-opus-4-8": anthropic_price(5.00, 25.00),
     "claude-opus-4-6": anthropic_price(5.00, 25.00),
     "claude-opus-4-5": anthropic_price(5.00, 25.00),
