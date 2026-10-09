@@ -63,7 +63,10 @@ class Config(UserDict):
         value = self
         parts = key.split(".")
         for part in parts[:-1]:
-            value = value.get(part, {})
+            if part not in value:
+                # __missing__ hands back a detached Config, so a level has to be created to write into
+                value[part] = Config(path=f"{value._path}.{part}" if value._path else part)
+            value = value[part]
         value[parts[-1]] = new
 
     def __str__(self) -> str:

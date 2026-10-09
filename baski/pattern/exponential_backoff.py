@@ -40,6 +40,8 @@ async def retry(  # noqa: PLR0913 — knob-rich tuning API; grouping into a conf
         try:
             return await do(**kwargs)
         except exceptions as e:
+            if i == times:
+                break  # nothing left to retry — sleeping here only delays the raise
             wait_time = wait_time_fn(e, i, min_wait_ms, max_wait_ms)
             logger.warning(f"Got exception {type(e)}: '{e}'. retry after {wait_time / 1000} seconds")
             await asyncio.sleep(wait_time / 1000)

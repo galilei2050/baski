@@ -70,11 +70,12 @@ Handles `asyncio.TimeoutError`:
 - Logs "Request timeout"
 - Returns 408 (Request Timeout)
 
-**Validation Error Handlers** (`exception_handlers.py:137-160`)
+**Validation Error Handler**
 
-Handle Pydantic `ValidationError` and FastAPI `RequestValidationError`:
+One handler, `request_validation_exception_handler`, is registered for both Pydantic
+`ValidationError` and FastAPI `RequestValidationError` — `exc.errors()` exists on both:
 - Log validation errors with request body
-- Return 422 (Unprocessable Entity)
+- Return 422 (Unprocessable Entity) with `{"detail": [...]}`
 
 **Runtime Exception Handler** (`exception_handlers.py:120-134`)
 

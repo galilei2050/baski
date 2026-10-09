@@ -71,18 +71,16 @@ date_formats: dict[int, list[str]] = {
 }
 
 
-def datetime_hook(doc: dict, *, add_tz: bool = False) -> dict:  # noqa: ANON002 — json.loads object_hook receives arbitrary decoded objects
-    """object_hook that converts ISO-shaped string values in doc to datetime."""
+def datetime_hook(doc: dict) -> dict:  # noqa: ANON002 — json.loads object_hook receives arbitrary decoded objects
+    """object_hook that converts ISO-shaped string values in doc to tz-aware datetime."""
     for k, v in doc.items():
         if not isinstance(v, str):
             continue
         possible_formats = date_formats.get(len(v), [])
         for fmt in possible_formats:
             try:
-                d = datetime.strptime(v, fmt)  # noqa: DTZ007 — naive parse is intentional; tz attached below via as_utc when add_tz is set
-                if add_tz and d.tzinfo is None:
-                    d = as_utc(d)
-                doc[k] = d
+                d = datetime.strptime(v, fmt)  # noqa: DTZ007 — naive parse is intentional; as_utc attaches the tz below
+                doc[k] = as_utc(d)
                 break
             except (ValueError, OverflowError):
                 pass

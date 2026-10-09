@@ -97,7 +97,7 @@ class UnprocessedMiddleware:
             bucket_path = f"{message.chat.id}/{now:%Y-%m-%d}_{object_type}_{message.message_id}_{local_file_path.name}"
             blob = self.bucket.blob(bucket_path)
             await anyio.to_thread.run_sync(
-                functools.partial(blob.upload_from_file, file_obj=read_buffer, content_type=mime_type, num_retries=5)
+                functools.partial(blob.upload_from_file, file_obj=read_buffer, content_type=mime_type)
             )
 
     async def _download_media(

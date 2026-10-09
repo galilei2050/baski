@@ -126,7 +126,7 @@ class WebBrowseTool(Tool):
             return self._named(page, sections) if sections else self._window(page, offset)
         except HTTPStatusError as e:
             return self._handle_http_error(url=url, e=e)
-        except TimeoutException:
+        except (TimeoutException, TimeoutError):  # httpx fetch, and the builtin one _safe_goto raises
             return f"Website timed out. Try again later: {url}"
 
     async def _fetch(self, url: str) -> Page:
