@@ -182,7 +182,7 @@ class Agent:
 
     def add_pinned_text(self, text: str) -> None:
         """Pin a plain user-text message (e.g. a one-shot task framed for the model)."""
-        self.add_pinned(MessageParam(role="user", content=[TextBlockParam(type="text", text=text)]))
+        self.add_pinned({"role": "user", "content": [TextBlockParam(type="text", text=text)]})
 
     async def _system(self) -> str:
         """Assemble the system prompt fresh — tool contributions (e.g. owner preferences) can change per turn."""
@@ -272,7 +272,7 @@ class Agent:
                 f"[Turn {turn_number}/{self._max_turns} — {left} turn(s) left before you must give your final "
                 "answer. Spend tool calls deliberately and synthesize in time; don't research deeper than needed.]"
             )
-        return MessageParam(role="user", content=[TextBlockParam(type="text", text=text)])
+        return {"role": "user", "content": [TextBlockParam(type="text", text=text)]}
 
     async def _build_messages(self, turn_number: int, *, force_answer: bool) -> list[MessageParam]:
         """Build the full message list for an API call: pinned context, then the history.
@@ -281,10 +281,10 @@ class Agent:
         its loop it has spent and when it must deliver a final answer.
         """
         now = datetime.now()
-        time_message = MessageParam(
-            role="user",
-            content=[TextBlockParam(type="text", text=f"Current time: {now.strftime('%A, %B %d, %Y %I:%M %p %Z')}")],
-        )
+        time_message: MessageParam = {
+            "role": "user",
+            "content": [TextBlockParam(type="text", text=f"Current time: {now.strftime('%A, %B %d, %Y %I:%M %p %Z')}")],
+        }
         # Stable prefix (pinned + history, cache breakpoint on the last turn) first; volatile blocks
         # after it so they don't invalidate the cache: context footer, turn budget, per-turn
         # user_message() injections, then time (changes every minute).
