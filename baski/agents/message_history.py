@@ -57,7 +57,9 @@ def mark_cached(message: MessageParam) -> MessageParam:
     blocks[idx] = (block.model_dump() if isinstance(block, BaseModel) else dict(block)) | {
         "cache_control": EPHEMERAL_CACHE
     }
-    return MessageParam(role=message["role"], content=blocks)
+    cached = message.copy()
+    cached["content"] = blocks
+    return cached
 
 
 def context_status(last_input_tokens: int, max_tokens: int) -> MessageParam | None:
@@ -66,7 +68,7 @@ def context_status(last_input_tokens: int, max_tokens: int) -> MessageParam | No
         return None
     pct = int(last_input_tokens / max_tokens * 100)
     text = f"[Context: {pct}% used — {max_tokens - last_input_tokens:,} tokens remaining]"
-    return MessageParam(role="user", content=[TextBlockParam(type="text", text=text)])
+    return {"role": "user", "content": [TextBlockParam(type="text", text=text)]}
 
 
 @dataclass
@@ -200,35 +202,35 @@ class InMemoryMessageHistory(MessageHistory):
     def add_assistant(self, content_blocks: list[ContentBlock]) -> None:
         """Append an assistant message with the given content blocks to the current turn."""
         self._turn.messages.append(
-            MessageParam(
-                role="assistant",
-                content=content_blocks,
-            )
+            {
+                "role": "assistant",
+                "content": content_blocks,
+            }
         )
 
     def add_tool_results(self, results: list[ToolResultBlockParam]) -> None:
         """Append a user message containing tool results to the current turn."""
         self._turn.messages.append(
-            MessageParam(
-                role="user",
-                content=results,
-            )
+            {
+                "role": "user",
+                "content": results,
+            }
         )
 
     def add_user_text(self, text: str) -> None:
         """Append a plain-text user message to the current turn."""
         self._turn.messages.append(
-            MessageParam(
-                role="user",
-                content=[TextBlockParam(type="text", text=text)],
-            )
+            {
+                "role": "user",
+                "content": [TextBlockParam(type="text", text=text)],
+            }
         )
 
     def format_for_api(self) -> list[MessageParam]:
         """Return messages ready for API with [Turn N] markers, cache breakpoint on the last turn."""
-        result = []
+        result: list[MessageParam] = []
         for turn in self._turns:
-            result.append(MessageParam(role="user", content=[TextBlockParam(type="text", text=f"[Turn {turn.id}]")]))
+            result.append({"role": "user", "content": [TextBlockParam(type="text", text=f"[Turn {turn.id}]")]})
             result.extend(turn.messages)
 
         if result:
