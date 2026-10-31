@@ -11,7 +11,7 @@ None at this level.
 
 ## Technical decisions
 
-- **`claude-haiku-4-5` runs with no `thinking` and `max_tokens=64_000`** (`_reasoning_params` in `agent.py`) — Haiku has no adaptive thinking and caps output at 64K, so the default request is a 400 on it. Rejected: `{"type": "enabled", "budget_tokens": N}` — the owner wants Haiku as a non-thinking model.
+- **Thinking is chosen by the caller via `AgentConfig.thinking_type`** (`"adaptive"` default, `"disabled"` for Haiku) — the next Haiku must work without touching the framework. Rejected: matching on the model name — every new model would need a framework change. Haiku also caps output at 64K, so a Haiku agent passes `max_tokens=64_000` through `Agent(config, max_tokens=...)`.
 
 ## Core Components
 

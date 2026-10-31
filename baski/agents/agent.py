@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from http import HTTPStatus
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
 from anthropic.types import ContentBlock, Message, MessageParam, TextBlock, TextBlockParam, ThinkingBlock, ToolUseBlock
@@ -24,7 +24,6 @@ from .trace import TraceCollector, TraceCollectorConfig
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-5-5"
-HAIKU_MODEL = "claude-haiku-4-5"
 
 # The judge grades one transcript with a cheap flash model — seconds when Vertex answers at all.
 # The bound is here and not in HttpOptions.timeout because the genai SDK retries a timeout
@@ -82,16 +81,6 @@ def _is_retriable(e: APIStatusError | APIConnectionError) -> bool:
     return e.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR
 
 
-def _reasoning_params(model: str) -> dict[str, object]:
-    """The thinking and output-size request params the model accepts."""
-    if model == HAIKU_MODEL:
-        # Haiku has no adaptive thinking and caps output at 64K; 128K or `adaptive` is a 400.
-        return {"max_tokens": 64_000}
-    # display=summarized so the thinking lands in the response (and our trace); the API
-    # otherwise returns it omitted (empty thinking, signature only) for Opus 4.7+.
-    return {"thinking": {"type": "adaptive", "display": "summarized"}, "max_tokens": 128_000}
-
-
 class ParsedResponse(NamedTuple):
     """Parsed content blocks from an Anthropic API response."""
 
@@ -133,6 +122,7 @@ class AgentConfig(NamedTuple):
     # rates are in `MODEL_PRICING` for callers that want them.
     price: ModelPrice
     model: str = DEFAULT_MODEL
+    thinking_type: Literal["adaptive", "disabled"] = "adaptive"  # "disabled" for a model that can't think (Haiku)
     await_trace: bool = False  # block reply on trace persistence (tests/probe read it right after)
     local_traces_dir: str | None = None  # write full traces here instead of GCS (tests/probe); None → GCS
     judge_max_retries: int = 2  # cap on judge-driven re-runs, so an unsatisfiable check never spins
@@ -181,7 +171,12 @@ class Agent:
             "model": config.model,
             "tools": tools,
             "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
-            **_reasoning_params(config.model),
+            # display=summarized so the thinking lands in the response (and our trace); the API
+            # otherwise returns it omitted (empty thinking, signature only) for Opus 4.7+.
+            "thinking": {"type": "adaptive", "display": "summarized"}
+            if config.thinking_type == "adaptive"
+            else {"type": "disabled"},
+            "max_tokens": 128_000,
         } | params
 
     def add_pinned(self, message: MessageParam) -> None:
