@@ -24,6 +24,7 @@ from .trace import TraceCollector, TraceCollectorConfig
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-5-5"
+HAIKU_MODEL = "claude-haiku-4-5"
 
 # The judge grades one transcript with a cheap flash model — seconds when Vertex answers at all.
 # The bound is here and not in HttpOptions.timeout because the genai SDK retries a timeout
@@ -79,6 +80,16 @@ def _is_retriable(e: APIStatusError | APIConnectionError) -> bool:
     if isinstance(e, APIConnectionError):
         return True
     return e.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+def _reasoning_params(model: str) -> dict[str, object]:
+    """The thinking and output-size request params the model accepts."""
+    if model == HAIKU_MODEL:
+        # Haiku has no adaptive thinking and caps output at 64K; 128K or `adaptive` is a 400.
+        return {"max_tokens": 64_000}
+    # display=summarized so the thinking lands in the response (and our trace); the API
+    # otherwise returns it omitted (empty thinking, signature only) for Opus 4.7+.
+    return {"thinking": {"type": "adaptive", "display": "summarized"}, "max_tokens": 128_000}
 
 
 class ParsedResponse(NamedTuple):
@@ -170,10 +181,7 @@ class Agent:
             "model": config.model,
             "tools": tools,
             "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
-            # display=summarized so the thinking lands in the response (and our trace); the API
-            # otherwise returns it omitted (empty thinking, signature only) for Opus 4.7+.
-            "thinking": {"type": "adaptive", "display": "summarized"},
-            "max_tokens": 128_000,
+            **_reasoning_params(config.model),
         } | params
 
     def add_pinned(self, message: MessageParam) -> None:
@@ -182,7 +190,7 @@ class Agent:
 
     def add_pinned_text(self, text: str) -> None:
         """Pin a plain user-text message (e.g. a one-shot task framed for the model)."""
-        self.add_pinned(MessageParam(role="user", content=[TextBlockParam(type="text", text=text)]))
+        self.add_pinned({"role": "user", "content": [TextBlockParam(type="text", text=text)]})
 
     async def _system(self) -> str:
         """Assemble the system prompt fresh — tool contributions (e.g. owner preferences) can change per turn."""
@@ -272,7 +280,7 @@ class Agent:
                 f"[Turn {turn_number}/{self._max_turns} — {left} turn(s) left before you must give your final "
                 "answer. Spend tool calls deliberately and synthesize in time; don't research deeper than needed.]"
             )
-        return MessageParam(role="user", content=[TextBlockParam(type="text", text=text)])
+        return {"role": "user", "content": [TextBlockParam(type="text", text=text)]}
 
     async def _build_messages(self, turn_number: int, *, force_answer: bool) -> list[MessageParam]:
         """Build the full message list for an API call: pinned context, then the history.
@@ -281,10 +289,10 @@ class Agent:
         its loop it has spent and when it must deliver a final answer.
         """
         now = datetime.now()
-        time_message = MessageParam(
-            role="user",
-            content=[TextBlockParam(type="text", text=f"Current time: {now.strftime('%A, %B %d, %Y %I:%M %p %Z')}")],
-        )
+        time_message: MessageParam = {
+            "role": "user",
+            "content": [TextBlockParam(type="text", text=f"Current time: {now.strftime('%A, %B %d, %Y %I:%M %p %Z')}")],
+        }
         # Stable prefix (pinned + history, cache breakpoint on the last turn) first; volatile blocks
         # after it so they don't invalidate the cache: context footer, turn budget, per-turn
         # user_message() injections, then time (changes every minute).

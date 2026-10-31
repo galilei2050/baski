@@ -111,10 +111,10 @@ Use aggressively - store first, synthesize later. More is better than perfect.""
             parts.append("Notes:")
             parts.extend(f"- {k}" for k in self.knowledge)
 
-        return MessageParam(
-            role="user",
-            content=[TextBlockParam(type="text", text="\n".join(parts))],
-        )
+        return {
+            "role": "user",
+            "content": [TextBlockParam(type="text", text="\n".join(parts))],
+        }
 
     async def system_prompt(self) -> str:
         """Instructions telling the agent to preserve facts proactively."""
