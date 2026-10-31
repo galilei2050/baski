@@ -13,13 +13,11 @@ DOWNSTREAM_STATUS_MAPPING = {
     # Authentication/authorization issues - our service misconfiguration
     401: HTTPStatus.INTERNAL_SERVER_ERROR,
     403: HTTPStatus.INTERNAL_SERVER_ERROR,
-
     # Operational client errors - dependency issues
     404: HTTPStatus.SERVICE_UNAVAILABLE,
     429: HTTPStatus.SERVICE_UNAVAILABLE,
-
     # All 5xx errors - downstream service issues
-    **{status: HTTPStatus.SERVICE_UNAVAILABLE for status in range(500, 600)}
+    **{status: HTTPStatus.SERVICE_UNAVAILABLE for status in range(500, 600)},
 }
 ```
 

@@ -30,7 +30,7 @@ def do_nothing_sync(
     """Sync no-op handler counterpart to do_nothing."""
 
 
-def _log_handled_exception(  # noqa: PLR0913 — internal helper; all params load-bearing and called from a single site
+def _log_handled_exception(  # noqa: PLR0913, PLR0917 — internal helper; all params load-bearing and called from a single site
     exc: BaseException,
     name: str,
     args: tuple,
@@ -45,7 +45,7 @@ def _log_handled_exception(  # noqa: PLR0913 — internal helper; all params loa
     elif isinstance(exc, skip_traceback_exceptions):
         logger.error(msg)
     else:
-        logger.exception(msg)
+        logger.error(msg, exc_info=exc)
 
 
 async def _invoke_handler(  # noqa: PLR0913 — internal helper called from a single site; all params load-bearing
@@ -61,7 +61,7 @@ async def _invoke_handler(  # noqa: PLR0913 — internal helper called from a si
     return do(*args, exception=exception, **kwargs)
 
 
-def on_exception(  # noqa: PLR0913 — decorator factory; each option configures distinct behavior, grouping would hurt call-site readability
+def on_exception(  # noqa: PLR0913, PLR0917 — decorator factory; each option configures distinct behavior, grouping would hurt call-site readability
     do: typing.Callable = do_nothing,
     exceptions: type[BaseException] | tuple[type[BaseException], ...] = Exception,
     skip_traceback_exceptions: tuple = (),

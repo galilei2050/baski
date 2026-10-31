@@ -79,7 +79,7 @@ def _create_dlq_topic(
     return dlq_topic, dlq_debug_subscription, dlq_topic_name
 
 
-def _create_push_subscription(  # noqa: PLR0913 — Pub/Sub subscription configuration legitimately takes many parameters
+def _create_push_subscription(  # noqa: PLR0913, PLR0917 — Pub/Sub subscription configuration legitimately takes many parameters
     topic_name: str,
     subscription_name: str,
     http_endpoint: str,
@@ -156,7 +156,7 @@ def _create_dlq_alert_policy(
     )
 
 
-def create_subscription_with_push_and_dlq(  # noqa: PLR0913 — Pub/Sub subscription configuration legitimately takes many parameters
+def create_subscription_with_push_and_dlq(  # noqa: PLR0913, PLR0917 — Pub/Sub subscription configuration legitimately takes many parameters
     topic_name: str,
     subscription_name: str,
     http_endpoint: str,

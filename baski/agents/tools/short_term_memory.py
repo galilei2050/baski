@@ -100,8 +100,10 @@ Use aggressively - store first, synthesize later. More is better than perfect.""
     async def user_message(self) -> MessageParam:
         """Format all knowledge as the per-turn user block injected at the top of the prompt."""
         parts = [
-            f"WORKING MEMORY — this reply's scratchpad (cleared after the reply). Use {self.name} the "
-            "moment you learn anything, so it survives context truncation.",
+            (
+                f"WORKING MEMORY — this reply's scratchpad (cleared after the reply). Use {self.name} the "
+                "moment you learn anything, so it survives context truncation."
+            ),
             "",
         ]
 

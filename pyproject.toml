@@ -70,6 +70,7 @@ ignore = [
     # Formatter conflicts
     "COM812",
     # Project conventions
+    "CPY001",  # per-file copyright header — the repo-level LICENSE covers every file
     "RUF013",  # implicit-optional — explicit X | None used instead
     "RUF001",  # ambiguous unicode chars — bilingual (RU + EN) plugins need real Cyrillic
     "SIM110",  # explicit for-loops over any() — easier to extend with logging later
