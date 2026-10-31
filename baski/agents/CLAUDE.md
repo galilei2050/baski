@@ -1,7 +1,17 @@
 # Agent Framework
 
+Updated: 2026-10-31
+
 Agentic framework for building LLM agents with tool use, built on Anthropic's Claude API.
 Ported from clarity-auto-care; the generic core lives here so other projects (e.g. nisse) reuse it.
+
+## Business decisions
+
+None at this level.
+
+## Technical decisions
+
+- **`claude-haiku-4-5` runs with no `thinking` and `max_tokens=64_000`** (`_reasoning_params` in `agent.py`) — Haiku has no adaptive thinking and caps output at 64K, so the default request is a 400 on it. Rejected: `{"type": "enabled", "budget_tokens": N}` — the owner wants Haiku as a non-thinking model.
 
 ## Core Components
 
@@ -30,7 +40,7 @@ Project-specific tools stay in the consuming project, NOT here. Canonical assemb
 
 - Tracing is mandatory: every `execute()` requires a Mongo `database` and a GCS `bucket_name`.
 - **Turn budget** (`AgentConfig.max_turns`, default 40): a hard ceiling on the agentic loop. Every turn a volatile `[Turn n/max …]` line is injected (in `_build_messages`' trailing section, after the cache breakpoint) so the agent paces itself; the final allowed turn runs with `tool_choice=none` (`_run_turn` → `disable_tools`) so a runaway investigation always terminates in a synthesized answer, not more tool calls. Give a sub-agent a tighter value to keep research shallow. Independent of `judge_max_retries`.
-- Extended thinking is `adaptive`; parallel tool use enabled; `max_tokens=128_000`.
+- Extended thinking is `adaptive`; parallel tool use enabled; `max_tokens=128_000`. Haiku is the exception (see Technical decisions).
 - **Prompt caching**: cache breakpoints set in `agent.py` (tools, system) and `format_for_api` (history, via `mark_cached`). Invariant when adding anything to the prompt — volatile/per-turn content (time, context footer, `user_message()` injections) must go AFTER the last breakpoint; keep it in `_build_messages`' trailing section, never inside `format_for_api`. `mark_cached` must stay copy-safe (mutating a stored turn would persist `cache_control`).
 - Size context only via `pricing.effective_input_tokens` — caching hides cached tokens from `usage.input_tokens`, so a `truncate` reading it raw never trims.
 - **A model missing from `MODEL_PRICING` raises** (at `ExecutionStats` construction, before the run spends anything) instead of falling back to a default rate. The fallback it replaces billed every `claude-opus-5` call at Sonnet's price and understated a month of spend by 1.67x, with nothing in the number to show it was a guess. Adding a model to the agent means adding its price.
