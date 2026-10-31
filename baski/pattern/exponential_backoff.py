@@ -24,7 +24,7 @@ def wait_time_function(
     return i * random.randrange(min_wait_ms, max_wait_ms)  # noqa: S311 — backoff jitter, not a security primitive
 
 
-async def retry(  # noqa: PLR0913, PLR0917 — knob-rich tuning API; grouping into a config object would hurt typical call ergonomics
+async def retry(  # noqa: PLR0913, PLR0917 — knob-rich tuning API; grouping into a config object would hurt typical call ergonomics; positional kept for existing callers
     do: typing.Callable,
     exceptions: typing.Iterable,
     times: int = 50,

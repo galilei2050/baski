@@ -122,7 +122,7 @@ class AgentConfig(NamedTuple):
     # rates are in `MODEL_PRICING` for callers that want them.
     price: ModelPrice
     model: str = DEFAULT_MODEL
-    thinking_type: Literal["adaptive", "disabled"] = "adaptive"  # "disabled" for a model that can't think (Haiku)
+    thinking_type: Literal["adaptive", "disabled"] = "adaptive"  # "disabled": Haiku, run non-thinking
     await_trace: bool = False  # block reply on trace persistence (tests/probe read it right after)
     local_traces_dir: str | None = None  # write full traces here instead of GCS (tests/probe); None → GCS
     judge_max_retries: int = 2  # cap on judge-driven re-runs, so an unsatisfiable check never spins

@@ -11,7 +11,7 @@ None at this level.
 
 ## Technical decisions
 
-- **Thinking is chosen by the caller via `AgentConfig.thinking_type`** (`"adaptive"` default, `"disabled"` for Haiku) — the next Haiku must work without touching the framework. Rejected: matching on the model name — every new model would need a framework change. Haiku also caps output at 64K, so a Haiku agent passes `max_tokens=64_000` through `Agent(config, max_tokens=...)`.
+- **Thinking is chosen by the caller via `AgentConfig.thinking_type`** (`"adaptive"` default, `"disabled"` for Haiku) — the next Haiku must work without touching the framework. Haiku has no adaptive thinking and the owner runs it non-thinking. Rejected: matching on the model name — every new model would need a framework change; `enabled` + `budget_tokens` for Haiku — the owner wants it non-thinking. Haiku also caps output at 64K, so a Haiku agent passes `max_tokens=64_000` through `Agent(config, max_tokens=...)`.
 
 ## Core Components
 
