@@ -1,40 +1,28 @@
 # Foundation Server Module
 
+Updated: 2026-10-31
+
+## Business decisions
+
+None at this level.
+
+## Technical decisions
+
+None at this level.
+
 ## Exception Handling & Status Code Mapping
 
 ### Downstream HTTP Status Code Mapping
 
 When external API calls return errors, the global exception handler maps downstream status codes to appropriate service response codes.
 
-**File**: `app/foundation/server/exception_handlers.py:20-32`
-
-```python
-DOWNSTREAM_STATUS_MAPPING = {
-    # Authentication/authorization issues - our service misconfiguration
-    401: HTTPStatus.INTERNAL_SERVER_ERROR,
-    403: HTTPStatus.INTERNAL_SERVER_ERROR,
-
-    # Operational client errors - dependency issues
-    404: HTTPStatus.SERVICE_UNAVAILABLE,
-    429: HTTPStatus.SERVICE_UNAVAILABLE,
-
-    # All 5xx errors - downstream service issues
-    **{status: HTTPStatus.SERVICE_UNAVAILABLE for status in range(500, 600)}
-}
-```
+The mapping is `DOWNSTREAM_STATUS_MAPPING` in `baski/http/exception_handlers.py`.
 
 ### Status Code Mapping Rationale
 
-**429 (Rate Limited) → 503 (Service Unavailable)**
+**429 (Rate Limited) — not mapped**
 
-Rate limiting from downstream services is treated as an operational issue requiring immediate attention:
-- Indicates excessive request volume
-- May signal insufficient API quota
-- Could reveal runaway jobs or bugs
-- Triggers alerting for operations team
-- Not a transient error to silently retry
-
-The 503 response signals to clients that the service is temporarily unavailable due to dependency issues, while the actual 429 status is logged for debugging.
+A downstream 429 passes through unchanged, so callers see it as retryable.
 
 **404 (Not Found) → 503 (Service Unavailable)**
 

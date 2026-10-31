@@ -8,7 +8,7 @@ import pulumi_gcp as gcp
 __all__ = ["make_scheduled_job"]
 
 
-def make_scheduled_job(  # noqa: PLR0913 — Cloud Scheduler jobs legitimately take many configuration parameters
+def make_scheduled_job(  # noqa: PLR0913, PLR0917 — Cloud Scheduler jobs legitimately take many configuration parameters; positional kept for existing callers
     name: str,
     description: str,
     schedule: str,

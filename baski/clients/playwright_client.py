@@ -12,7 +12,7 @@ from typing import Any, Self, cast
 import httpx
 import trafilatura
 from anyio import Path as AsyncPath
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from httpx import HTTPStatusError
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
@@ -354,11 +354,8 @@ def _is_retryable_error(error_msg: str) -> bool:
 
 
 def _strip_by_attr(soup: BeautifulSoup, attr: str, needle: str) -> None:
-    def matches(value: Any) -> bool:  # noqa: ANN401 — bs4 attr filter receives str | list | None
-        if not value:
-            return False
-        text = " ".join(value) if isinstance(value, list) else value
-        return needle in text.lower()
+    def matches(tag: Tag) -> bool:
+        return any(value and needle in value.lower() for value in tag.get_attribute_list(attr))
 
-    for element in soup.find_all(attrs={attr: matches}):
+    for element in soup.find_all(matches):
         element.decompose()
